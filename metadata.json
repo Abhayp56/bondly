@@ -1,0 +1,6 @@
+{
+  "name": "Bondly",
+  "description": "AI-Powered Daily Friendship Game - A beautiful interactive game for two people to strengthen their relationship through daily interactive questions, prediction challenges, and AI-powered compatibility insights.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

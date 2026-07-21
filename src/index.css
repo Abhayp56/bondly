@@ -1,0 +1,96 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+
+  --color-vcoral: #FF466E;
+  --color-vcoral-hover: #E63960;
+  --color-vpink-start: #FF758F;
+  --color-vpink-end: #FF8FA3;
+  
+  --color-vbg: #FAFAF9;
+  --color-vcard: #FFFFFF;
+  --color-vborder: #F3ECEE;
+  --color-vsoft: #FFF0F3;
+  --color-vsoft-border: #FFD6DF;
+
+  --color-vtext: #1E1E24;
+  --color-vgray: #71717A;
+  --color-vcharcoal: #27272A;
+
+  /* Bento Colors */
+  --color-vvault-bg: #FFF4E0;
+  --color-vvault-border: #FFE0A3;
+  --color-vvault-text: #B17D23;
+
+  --color-vscore-bg: #FFF0F3;
+  --color-vscore-border: #FFD6DF;
+  --color-vscore-text: #FF466E;
+
+  --color-vgames-bg: #EAF8F2;
+  --color-vgames-border: #B7EBDB;
+  --color-vgames-text: #10B981;
+
+  --color-vach-bg: #F5EEFF;
+  --color-vach-border: #E2CEFF;
+  --color-vach-text: #8B5CF6;
+}
+
+body {
+  background-color: #F7F5F6;
+  color: #1E1E24;
+  font-family: var(--font-sans);
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+/* Custom smooth scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #E4E4E7;
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #A1A1AA;
+}
+
+/* Glassmorphism helpers */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.glass-nav {
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+/* Card 3D Perspective Flip */
+.perspective-1000 {
+  perspective: 1000px;
+}
+
+.transform-style-3d {
+  transform-style: preserve-3d;
+}
+
+.backface-hidden {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.rotate-y-180 {
+  transform: rotateY(180deg);
+}
