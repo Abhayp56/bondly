@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { Heart, Sparkles, User, Users, ArrowRight, Copy, Check } from 'lucide-react';
 import { Profile } from '../types';
+import { getApiUrl } from '../config';
 
 interface OnboardingProps {
   onComplete: (profile: Profile, roomState?: any) => void;
@@ -24,7 +25,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     setIsLoading(true);
     setErrorMsg('');
     try {
-      const res = await fetch('/api/rooms/create', {
+      const res = await fetch(getApiUrl('/api/rooms/create'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ profile: myProfile })
@@ -34,10 +35,12 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
         setGeneratedCode(data.roomCode);
         setStep(3);
       } else {
-        throw new Error('Failed to create room');
+        const err = await res.json();
+        setErrorMsg(err.error || 'Failed to create room. Please try again.');
       }
     } catch (e) {
-      onComplete(myProfile);
+      console.error('Create room error:', e);
+      setErrorMsg('Unable to connect to server. Please check your internet connection.');
     } finally {
       setIsLoading(false);
     }
@@ -51,7 +54,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     setIsLoading(true);
     setErrorMsg('');
     try {
-      const res = await fetch('/api/rooms/join', {
+      const res = await fetch(getApiUrl('/api/rooms/join'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ roomCode: pairCode, profile: myProfile })
@@ -289,12 +292,12 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                 </div>
 
                 <div className="p-4 bg-vsoft border border-vsoft-border rounded-2xl text-[11px] text-vcharcoal text-left font-medium leading-relaxed">
-                  💡 <strong>Tell your bestie:</strong> Open <code>http://10.227.87.68:3000</code> on her phone and select <strong>"Enter Friend's Pair Code"</strong>!
+                  💡 <strong>Tell your bestie:</strong> Share this 6-digit Pair Code with her so she can tap <strong>"Enter Friend's Pair Code"</strong> on her phone!
                 </div>
 
                 <button
                   onClick={() => {
-                    fetch(`/api/rooms/${generatedCode}?slot=user1`)
+                    fetch(getApiUrl(`/api/rooms/${generatedCode}?slot=user1`))
                       .then(res => res.json())
                       .then(data => onComplete(data.roomState.profile, data.roomState));
                   }}

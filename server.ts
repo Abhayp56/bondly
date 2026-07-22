@@ -1,47 +1,81 @@
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import { GoogleGenAI, Type } from '@google/genai';
 import dotenv from 'dotenv';
 import { supabase } from './src/lib/supabaseClient';
 
 dotenv.config();
 
 const app = express();
+
+// Enable CORS for mobile apps and cross-origin requests
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 app.use(express.json());
 
 const PORT = 3000;
 
-// Lazy initialization of Gemini client
-let aiClient: GoogleGenAI | null = null;
-let isKeyMissing = false;
+// Initialization of Groq API status
+let isGroqKeyMissing = false;
 
-function getGeminiClient() {
-  if (aiClient) return aiClient;
-
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey === 'MY_GEMINI_API_KEY' || apiKey.trim() === '') {
-    console.warn('GEMINI_API_KEY is not configured or is a placeholder. Using fallback mock AI mode.');
-    isKeyMissing = true;
-    return null;
+// Groq API Helper Function using native fetch
+async function callGroqAPI(prompt: string, responseSchemaDesc?: string): Promise<any> {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey || apiKey === 'YOUR_GROQ_API_KEY' || apiKey.trim() === '') {
+    isGroqKeyMissing = true;
+    throw new Error('Groq API Key is missing or not configured');
   }
 
-  try {
-    aiClient = new GoogleGenAI({
-      apiKey: apiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
-        },
-      },
-    });
-    isKeyMissing = false;
-    return aiClient;
-  } catch (error) {
-    console.error('Failed to initialize GoogleGenAI client:', error);
-    isKeyMissing = true;
-    return null;
+  isGroqKeyMissing = false;
+
+  const systemMessage = responseSchemaDesc
+    ? `You are a helpful AI assistant. You must output a valid JSON object matching this schema or structure: ${responseSchemaDesc}. Do not output any conversational text or formatting outside the JSON object.`
+    : `You are a helpful AI assistant.`;
+
+  const payload: any = {
+    model: 'llama-3.3-70b-versatile',
+    messages: [
+      { role: 'system', content: systemMessage },
+      { role: 'user', content: prompt }
+    ]
+  };
+
+  if (responseSchemaDesc) {
+    payload.response_format = { type: 'json_object' };
   }
+
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Groq API returned ${res.status}: ${errorText}`);
+  }
+
+  const data = await res.json();
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error('Groq API returned an empty response');
+  }
+
+  if (responseSchemaDesc) {
+    return JSON.parse(content);
+  }
+  return content;
 }
 
 // -------------------------------------------------------------
@@ -159,47 +193,52 @@ const QUESTION_POOL = [
   { id: 't4', text: 'Where do you see us in ten years, and how has our friendship evolved?', category: 'Future', type: 'self', difficulty: 'Deep' },
 
   // Multiple Choice Option Match Challenges
-  { 
-    id: 'm1', 
-    text: 'Where would we go on our ultimate surprise weekend getaway?', 
-    category: 'Fun', 
-    type: 'multiple_choice', 
+  {
+    id: 'm1',
+    text: 'Where would we go on our ultimate surprise weekend getaway?',
+    category: 'Fun',
+    type: 'multiple_choice',
     difficulty: 'Easy',
     options: ['Cozy Mountain Cabin 🏔️', 'Sunny Beach Resort 🏖️', 'Bustling City Hotel 🏙️', 'Peaceful Forest Camping 🌲']
   },
-  { 
-    id: 'm2', 
-    text: 'What is our absolute ideal Friday night activity together?', 
-    category: 'Friendship', 
-    type: 'multiple_choice', 
+  {
+    id: 'm2',
+    text: 'What is our absolute ideal Friday night activity together?',
+    category: 'Friendship',
+    type: 'multiple_choice',
     difficulty: 'Easy',
     options: ['Bingeing a show with snacks 🍿', 'Cooking a fancy dinner 🍝', 'Late night drive & deep chats 🚗', 'Board games or gaming 🎮']
   },
-  { 
-    id: 'm3', 
-    text: 'If we suddenly won $10,000 today, what would we do first?', 
-    category: 'Future', 
-    type: 'multiple_choice', 
+  {
+    id: 'm3',
+    text: 'If we suddenly won $10,000 today, what would we do first?',
+    category: 'Future',
+    type: 'multiple_choice',
     difficulty: 'Medium',
     options: ['Book a luxury trip abroad ✈️', 'Invest & save for the future 📈', 'Go on a massive shopping spree 🛍️', 'Upgrade our living space 🏡']
   },
-  { 
-    id: 'm4', 
-    text: 'Which superhero duo role best describes us in a crisis?', 
-    category: 'Fun', 
-    type: 'multiple_choice', 
+  {
+    id: 'm4',
+    text: 'Which superhero duo role best describes us in a crisis?',
+    category: 'Fun',
+    type: 'multiple_choice',
     difficulty: 'Easy',
     options: ['The Master Strategist 🧠', 'The Hype Action Leader ⚡', 'The Calm Caretaker 🛡️', 'The Funny Specialist 🎭']
   }
 ];
 
-// Calculate Scheduled Unlock Times (8 AM, 12 PM, 4 PM, 8 PM, 11 PM)
+// Calculate Scheduled Unlock Times (8 AM, 12 PM, 4 PM, 8 PM, 10 PM)
 function getScheduledUnlockTime(index: number, baseDate?: Date): string {
-  const target = baseDate ? new Date(baseDate) : new Date();
-  const hours = [8, 12, 16, 20, 23]; // Morning, Afternoon, Evening, Night, Late Night
+  const d = baseDate ? new Date(baseDate) : new Date();
+  const hours = [8, 12, 16, 20, 22]; // Morning (8 AM), Afternoon (12 PM), Evening (4 PM), Night (8 PM), Late Night (10 PM)
   const selectedHour = hours[index] !== undefined ? hours[index] : 8 + index * 3;
-  target.setHours(selectedHour, 0, 0, 0);
-  return target.toISOString();
+  
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const hourStr = String(selectedHour).padStart(2, '0');
+  
+  return `${year}-${month}-${day}T${hourStr}:00:00`;
 }
 
 // Select 5 unique, non-repeating questions
@@ -267,7 +306,7 @@ function formatRoomForSlot(room: ServerRoom, slot: 'user1' | 'user2') {
   };
 }
 
-// Internal evaluation helper using Gemini AI or Mock logic
+// Internal evaluation helper using Groq AI or Mock logic
 async function evaluateAnswersInternal(
   questionText: string,
   category: string,
@@ -277,9 +316,10 @@ async function evaluateAnswersInternal(
   userPrediction?: string,
   partnerPrediction?: string
 ): Promise<{ similarityScore: number; aiCommentary: string }> {
-  const client = getGeminiClient();
+  const apiKey = process.env.GROQ_API_KEY;
+  const isKeyMissing = !apiKey || apiKey === 'YOUR_GROQ_API_KEY' || apiKey.trim() === '';
 
-  if (isKeyMissing || !client) {
+  if (isKeyMissing) {
     let score = 88;
     let commentary = `You both shared deep and meaningful perspectives in the ${category} category!`;
 
@@ -326,38 +366,28 @@ async function evaluateAnswersInternal(
       Tone: emotional, supportive, delight-driven. Use "you" and "your partner".
     `;
 
-    const response = await client.models.generateContent({
-      model: 'gemini-3.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            similarityScore: { type: Type.INTEGER },
-            aiCommentary: { type: Type.STRING },
-          },
-          required: ['similarityScore', 'aiCommentary'],
-        },
-      },
-    });
-
-    return JSON.parse(response.text || '{}');
+    const schemaDesc = `{ similarityScore: number (0-100), aiCommentary: string }`;
+    const data = await callGroqAPI(prompt, schemaDesc);
+    return {
+      similarityScore: Number(data.similarityScore) || 85,
+      aiCommentary: data.aiCommentary || 'You both shared wonderful thoughts that reflect your special connection.'
+    };
   } catch (error) {
-    console.error('Gemini evaluate internal error:', error);
+    console.error('Groq evaluate internal error:', error);
     return { similarityScore: 85, aiCommentary: 'You both shared wonderful thoughts that reflect your special connection.' };
   }
 }
 
-// Internal session summary helper
+// Internal session summary helper using Groq
 async function generateSessionSummaryInternal(questions: RoomQuestion[]): Promise<{
   compatibilityScore: number;
   breakdown: { communication: number; dreams: number; humor: number; emotions: number; lifestyle: number };
   aiSummary: string;
 }> {
-  const client = getGeminiClient();
+  const apiKey = process.env.GROQ_API_KEY;
+  const isKeyMissing = !apiKey || apiKey === 'YOUR_GROQ_API_KEY' || apiKey.trim() === '';
 
-  if (isKeyMissing || !client) {
+  if (isKeyMissing) {
     const avgScore = Math.round(questions.reduce((sum, q) => sum + (q.similarityScore || 85), 0) / questions.length) || 88;
     return {
       compatibilityScore: avgScore,
@@ -374,7 +404,7 @@ async function generateSessionSummaryInternal(questions: RoomQuestion[]): Promis
 
   try {
     const qDetails = questions.map((q, idx) => {
-      return `Question ${idx+1}: "${q.text}" (${q.category})\nUser 1 Answer/Prediction: "${q.user1Answer || q.user1Prediction}"\nUser 2 Answer/Prediction: "${q.user2Answer || q.user2Prediction}"\nSimilarity Score: ${q.similarityScore}%`;
+      return `Question ${idx + 1}: "${q.text}" (${q.category})\nUser 1 Answer/Prediction: "${q.user1Answer || q.user1Prediction}"\nUser 2 Answer/Prediction: "${q.user2Answer || q.user2Prediction}"\nSimilarity Score: ${q.similarityScore}%`;
     }).join('\n\n');
 
     const prompt = `
@@ -393,36 +423,22 @@ async function generateSessionSummaryInternal(questions: RoomQuestion[]): Promis
       3. Write a comforting, emotional, and encouraging AI summary of their bond today (exactly 2 sentences).
     `;
 
-    const response = await client.models.generateContent({
-      model: 'gemini-3.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            compatibilityScore: { type: Type.INTEGER },
-            breakdown: {
-              type: Type.OBJECT,
-              properties: {
-                communication: { type: Type.INTEGER },
-                dreams: { type: Type.INTEGER },
-                humor: { type: Type.INTEGER },
-                emotions: { type: Type.INTEGER },
-                lifestyle: { type: Type.INTEGER },
-              },
-              required: ['communication', 'dreams', 'humor', 'emotions', 'lifestyle']
-            },
-            aiSummary: { type: Type.STRING },
-          },
-          required: ['compatibilityScore', 'breakdown', 'aiSummary'],
-        },
-      },
-    });
+    const schemaDesc = `{ compatibilityScore: number (0-100), breakdown: { communication: number (0-100), dreams: number (0-100), humor: number (0-100), emotions: number (0-100), lifestyle: number (0-100) }, aiSummary: string }`;
+    const data = await callGroqAPI(prompt, schemaDesc);
 
-    return JSON.parse(response.text || '{}');
+    return {
+      compatibilityScore: Number(data.compatibilityScore) || 88,
+      breakdown: {
+        communication: Number(data.breakdown?.communication) || 85,
+        dreams: Number(data.breakdown?.dreams) || 85,
+        humor: Number(data.breakdown?.humor) || 85,
+        emotions: Number(data.breakdown?.emotions) || 85,
+        lifestyle: Number(data.breakdown?.lifestyle) || 85
+      },
+      aiSummary: data.aiSummary || 'You both showed wonderful mutual understanding and shared values today.'
+    };
   } catch (error) {
-    console.error('Gemini summary internal error:', error);
+    console.error('Groq summary internal error:', error);
     return {
       compatibilityScore: 88,
       breakdown: { communication: 90, dreams: 85, humor: 88, emotions: 92, lifestyle: 86 },
@@ -524,6 +540,36 @@ app.get('/api/rooms/:roomCode', async (req, res) => {
     return res.status(404).json({ error: 'Room not found' });
   }
 
+  // Automatic Midnight Rollover: Check if date has changed
+  const todayStr = new Date().toISOString().split('T')[0];
+  if (room.currentDate !== todayStr) {
+    const usedSet = new Set<string>(room.usedQuestionIds || []);
+    const picked = getNonRepeatingQuestions(usedSet, 5);
+    const todayDate = new Date();
+
+    const roomQuestions: RoomQuestion[] = picked.map((q, idx) => ({
+      id: `dq_${q.id}_${Date.now()}`,
+      questionId: q.id,
+      text: q.text,
+      category: q.category,
+      type: q.type,
+      difficulty: q.difficulty,
+      options: q.options,
+      unlockTime: getScheduledUnlockTime(idx, todayDate),
+    }));
+
+    room.currentDate = todayStr;
+    room.usedQuestionIds = Array.from(usedSet);
+    room.dailySession = {
+      id: `sess_${todayStr}`,
+      date: todayStr,
+      questions: roomQuestions
+    };
+    room.lastUpdated = Date.now();
+
+    await persistRoom(room);
+  }
+
   return res.json({ roomState: formatRoomForSlot(room, slot) });
 });
 
@@ -542,13 +588,15 @@ app.post('/api/rooms/:roomCode/answer', async (req, res) => {
     return res.status(400).json({ error: 'Invalid question index' });
   }
 
-  // Backend verification of scheduled unlock time
+  // Backend verification of scheduled unlock time (Disabled to prevent timezone mismatch issues)
+  /*
   const unlockDate = new Date(q.unlockTime);
   const now = new Date();
   if (unlockDate > now) {
     const formatted = unlockDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     return res.status(403).json({ error: `This prompt is locked until ${formatted}!` });
   }
+  */
 
   if (slot === 'user1') {
     if (q.type === 'prediction') {
@@ -695,7 +743,8 @@ app.post('/api/rooms/:roomCode/summary', async (req, res) => {
 // -------------------------------------------------------------
 
 app.get('/api/ai/status', (req, res) => {
-  getGeminiClient();
+  const apiKey = process.env.GROQ_API_KEY;
+  const isKeyMissing = !apiKey || apiKey === 'YOUR_GROQ_API_KEY' || apiKey.trim() === '';
   res.json({ mockMode: isKeyMissing });
 });
 
@@ -713,9 +762,10 @@ app.post('/api/ai/session-summary', async (req, res) => {
 
 app.post('/api/ai/monthly-story', async (req, res) => {
   const { memories } = req.body;
-  const client = getGeminiClient();
+  const apiKey = process.env.GROQ_API_KEY;
+  const isKeyMissing = !apiKey || apiKey === 'YOUR_GROQ_API_KEY' || apiKey.trim() === '';
 
-  if (isKeyMissing || !client || !memories || memories.length === 0) {
+  if (isKeyMissing || !memories || memories.length === 0) {
     const mockStory = `This month, your bond became noticeably stronger and beautifully anchored. You learned more about each other's hidden fears than ever before, and you became incredibly skilled at predicting each other's thoughts. Every answered question added a bright chapter to your shared timeline!`;
     await new Promise((resolve) => setTimeout(resolve, 800));
     return res.json({ story: mockStory });
@@ -723,7 +773,7 @@ app.post('/api/ai/monthly-story', async (req, res) => {
 
   try {
     const memoryDetails = memories.map((m: any, idx: number) => {
-      return `Day ${idx+1} (${m.date}) - Question: "${m.questionText}"\nUser: "${m.userAnswer}" | Partner: "${m.partnerAnswer}"\nAI commentary: "${m.aiCommentary}"`;
+      return `Day ${idx + 1} (${m.date}) - Question: "${m.questionText}"\nUser: "${m.userAnswer}" | Partner: "${m.partnerAnswer}"\nAI commentary: "${m.aiCommentary}"`;
     }).join('\n\n');
 
     const prompt = `
@@ -732,31 +782,21 @@ app.post('/api/ai/monthly-story', async (req, res) => {
       Write a heartwarming, emotional, and deeply personalized Monthly Friendship Story (3-4 sentences). Format like a beautiful journal entry.
     `;
 
-    const response = await client.models.generateContent({
-      model: 'gemini-3.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: { story: { type: Type.STRING } },
-          required: ['story']
-        }
-      }
-    });
-
-    return res.json(JSON.parse(response.text || '{}'));
+    const schemaDesc = `{ story: string }`;
+    const data = await callGroqAPI(prompt, schemaDesc);
+    return res.json(data);
   } catch (error) {
-    console.error('Gemini monthly story error:', error);
+    console.error('Groq monthly story error:', error);
     res.status(500).json({ error: 'Failed to generate monthly story' });
   }
 });
 
 app.post('/api/ai/custom-questions', async (req, res) => {
   const { pastQuestions } = req.body;
-  const client = getGeminiClient();
+  const apiKey = process.env.GROQ_API_KEY;
+  const isKeyMissing = !apiKey || apiKey === 'YOUR_GROQ_API_KEY' || apiKey.trim() === '';
 
-  if (isKeyMissing || !client) {
+  if (isKeyMissing) {
     const mockQuestions = [
       { id: 'dyn_1', text: 'What is a song that instantly reminds you of me, and what memory is tied to it?', category: 'Emotional', type: 'self', difficulty: 'Medium' },
       { id: 'dyn_2', text: 'If we were forced to live in a fantasy world, what roles would we take in our adventuring party?', category: 'Fun', type: 'self', difficulty: 'Easy' },
@@ -776,37 +816,11 @@ app.post('/api/ai/custom-questions', async (req, res) => {
       Include at least one prediction question.
     `;
 
-    const response = await client.models.generateContent({
-      model: 'gemini-3.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            questions: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  id: { type: Type.STRING },
-                  text: { type: Type.STRING },
-                  category: { type: Type.STRING, enum: ['Friendship', 'Fun', 'Emotional', 'Deep Thinking', 'Future', 'Random'] },
-                  type: { type: Type.STRING, enum: ['self', 'prediction', 'rapid_fire'] },
-                  difficulty: { type: Type.STRING, enum: ['Easy', 'Medium', 'Deep'] }
-                },
-                required: ['id', 'text', 'category', 'type', 'difficulty']
-              }
-            }
-          },
-          required: ['questions']
-        }
-      }
-    });
-
-    return res.json(JSON.parse(response.text || '{}'));
+    const schemaDesc = `{ questions: Array<{ id: string, text: string, category: string (one of: Friendship, Fun, Emotional, Deep Thinking, Future, Random), type: string (one of: self, prediction, rapid_fire), difficulty: string (one of: Easy, Medium, Deep) }> }`;
+    const data = await callGroqAPI(prompt, schemaDesc);
+    return res.json(data);
   } catch (error) {
-    console.error('Gemini custom questions error:', error);
+    console.error('Groq custom questions error:', error);
     res.status(500).json({ error: 'Failed to generate custom questions' });
   }
 });

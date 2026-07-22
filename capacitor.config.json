@@ -6,8 +6,11 @@
     "androidScheme": "https"
   },
   "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    },
     "LocalNotifications": {
-      "smallIcon": "ic_stat_icon_config_sample",
+      "smallIcon": "ic_stat_heart",
       "iconColor": "#FF466E",
       "sound": "beep.wav"
     }

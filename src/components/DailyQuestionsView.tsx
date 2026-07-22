@@ -7,6 +7,7 @@ import {
 import { Profile, DailyQuestion, DailySession, Memory } from '../types';
 import confetti from 'canvas-confetti';
 import { supabase } from '../lib/supabaseClient';
+import { getApiUrl } from '../config';
 
 interface DailyQuestionsProps {
   profile: Profile;
@@ -20,7 +21,7 @@ const SCHEDULE_LABELS = [
   'Afternoon (12:00 PM) 🌤️',
   'Evening (4:00 PM) 🌅',
   'Night (8:00 PM) 🌙',
-  'Late Night (11:00 PM) 🌌'
+  'Late Night (10:00 PM) 🌌'
 ];
 
 export default function DailyQuestionsView({ 
@@ -45,7 +46,7 @@ export default function DailyQuestionsView({
 
     const fetchRoomState = async () => {
       try {
-        const res = await fetch(`/api/rooms/${profile.roomCode}?slot=${profile.slot || 'user1'}`);
+        const res = await fetch(getApiUrl(`/api/rooms/${profile.roomCode}?slot=${profile.slot || 'user1'}`));
         if (res.ok) {
           const data = await res.json();
           if (data.roomState && data.roomState.dailySession) {
@@ -84,7 +85,7 @@ export default function DailyQuestionsView({
   const handleLoadNewDay = async () => {
     if (profile.roomCode) {
       try {
-        const res = await fetch(`/api/rooms/${profile.roomCode}/new-day`, {
+        const res = await fetch(getApiUrl(`/api/rooms/${profile.roomCode}/new-day`), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ slot: profile.slot || 'user1' })
@@ -130,9 +131,29 @@ export default function DailyQuestionsView({
     );
   }
 
-  const unlockDate = new Date(activeQuestion.unlockTime);
+  // Helper to reliably compute local scheduled unlock time for target slot hours (8 AM, 12 PM, 4 PM, 8 PM, 10 PM)
+  const getQuestionUnlockDate = (qUnlockTime: string, idx: number): Date => {
+    const hours = [8, 12, 16, 20, 22];
+    const targetHour = hours[idx] !== undefined ? hours[idx] : 8 + idx * 3;
+    const now = new Date();
+
+    if (!qUnlockTime) {
+      return new Date(now.getFullYear(), now.getMonth(), now.getDate(), targetHour, 0, 0);
+    }
+
+    // If formatted ISO string without Z, JavaScript parses as local time
+    if (!qUnlockTime.endsWith('Z') && qUnlockTime.includes('T')) {
+      const parsed = new Date(qUnlockTime);
+      if (!isNaN(parsed.getTime())) return parsed;
+    }
+
+    // Fallback/Legacy UTC string normalization to local time today
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate(), targetHour, 0, 0);
+  };
+
+  const unlockDate = getQuestionUnlockDate(activeQuestion.unlockTime, currentIndex);
   const isLocked = unlockDate > new Date();
-  const formattedUnlockTime = unlockDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const formattedUnlockTime = unlockDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
   // Trigger answer submission
   const handleSubmitAnswer = async () => {
@@ -149,7 +170,7 @@ export default function DailyQuestionsView({
     try {
       if (profile.roomCode) {
         // Submit answer to real-time room backend
-        const res = await fetch(`/api/rooms/${profile.roomCode}/answer`, {
+        const res = await fetch(getApiUrl(`/api/rooms/${profile.roomCode}/answer`), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -189,7 +210,7 @@ export default function DailyQuestionsView({
         }
 
         if (profile.partnerCode === 'AI-GEMINI') {
-          const response = await fetch('/api/ai/reveal', {
+          const response = await fetch(getApiUrl('/api/ai/reveal'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -259,7 +280,7 @@ export default function DailyQuestionsView({
           {dailySession.questions.map((q, idx) => {
             const isDone = q.answeredByUser && q.answeredByPartner;
             const isPending = q.answeredByUser && !q.answeredByPartner;
-            const isQLocked = new Date(q.unlockTime) > new Date();
+            const isQLocked = getQuestionUnlockDate(q.unlockTime, idx) > new Date();
             const isActive = idx === currentIndex;
             return (
               <button
@@ -295,12 +316,12 @@ export default function DailyQuestionsView({
           className="bg-white border border-vborder rounded-[32px] p-6 space-y-5 shadow-sm relative overflow-hidden"
         >
           {/* Top Header Pills */}
-          <div className="flex items-center justify-between">
-            <span className="px-3 py-1 bg-vsoft text-vcoral border border-vsoft-border rounded-full text-[10px] font-extrabold tracking-wider uppercase">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="px-3 py-1 bg-vsoft text-vcoral border border-vsoft-border rounded-full text-[10px] font-extrabold tracking-wider uppercase max-w-[75%] truncate">
               {activeQuestion.category} • {activeQuestion.type === 'multiple_choice' ? 'Choice Match 🎯' : activeQuestion.type === 'prediction' ? 'Prediction Challenge 🎯' : 'Self Reflection 💖'}
             </span>
 
-            <span className="text-[10px] font-bold text-vgray uppercase">
+            <span className="text-[10px] font-bold text-vgray uppercase shrink-0">
               {SCHEDULE_LABELS[currentIndex] || `Prompt ${currentIndex + 1}`}
             </span>
           </div>

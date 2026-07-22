@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { Calendar, Search, Plus, Trash2, Sparkles, BookOpen } from 'lucide-react';
 import { Profile, Memory, FriendshipTimelineEvent } from '../types';
+import { getApiUrl } from '../config';
 
 interface MemoryVaultProps {
   profile?: Profile | null;
@@ -35,7 +36,7 @@ export default function MemoryVaultView({
   const handleGenerateStory = async () => {
     setIsGeneratingStory(true);
     try {
-      const res = await fetch('/api/ai/monthly-story', {
+      const res = await fetch(getApiUrl('/api/ai/monthly-story'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ memories })

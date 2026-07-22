@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { Profile, DailySession, Memory, FriendshipTimelineEvent, Achievement, DailyQuestion } from './types';
 import { DEFAULT_QUESTIONS, INITIAL_ACHIEVEMENTS, INITIAL_TIMELINE_EVENTS } from './data';
-import { requestAppNotificationPermission, sendAppNotification } from './services/notificationService';
+import { requestAppNotificationPermission, sendAppNotification, syncDailyQuestionNotifications } from './services/notificationService';
 
 import Onboarding from './components/Onboarding';
 import DailyQuestionsView from './components/DailyQuestionsView';
@@ -30,6 +30,20 @@ export default function App() {
 
   // Track notified question events to avoid duplicate alerts
   const notifiedEventsRef = useRef<Set<string>>(new Set());
+
+  // Seed past unlock keys on session load so opening the app doesn't trigger bulk past alerts
+  useEffect(() => {
+    if (!dailySession) return;
+    const now = new Date();
+    dailySession.questions.forEach(q => {
+      const unlockDate = new Date(q.unlockTime);
+      if (unlockDate <= now) {
+        notifiedEventsRef.current.add(`unlock_${dailySession.id}_${q.id}`);
+      }
+    });
+    // Sync scheduled native notifications ONLY for future unanswered prompts
+    syncDailyQuestionNotifications(dailySession.questions);
+  }, [dailySession?.id]);
 
   // Helper to trigger Native OS Status Bar & In-app notifications
   const sendAlert = (title: string, body: string) => {
@@ -137,10 +151,15 @@ export default function App() {
         setDailySession(JSON.parse(storedSession));
       } else {
         const todayStr = new Date().toISOString().split('T')[0];
-        const hours = [8, 12, 16, 20, 23];
+        const hours = [8, 12, 16, 20, 22];
+        const d = new Date();
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+
         const sessionQs: DailyQuestion[] = DEFAULT_QUESTIONS.slice(0, 5).map((q, idx) => {
-          const target = new Date();
-          target.setHours(hours[idx] !== undefined ? hours[idx] : 8 + idx * 3, 0, 0, 0);
+          const selectedHour = hours[idx] !== undefined ? hours[idx] : 8 + idx * 3;
+          const hourStr = String(selectedHour).padStart(2, '0');
           return {
             id: `dq_${q.id}`,
             questionId: q.id,
@@ -152,7 +171,7 @@ export default function App() {
             answeredByPartner: false,
             userAnswer: '',
             partnerAnswer: '',
-            unlockTime: target.toISOString()
+            unlockTime: `${year}-${month}-${day}T${hourStr}:00:00`
           };
         });
 
@@ -443,6 +462,7 @@ export default function App() {
                   <AnswerCheckerView
                     profile={profile}
                     dailySession={dailySession}
+                    memories={memories}
                     onUpdateSession={handleUpdateSession}
                   />
                 )}
