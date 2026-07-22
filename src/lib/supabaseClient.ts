@@ -1,7 +1,16 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-let supabaseUrl = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '').trim();
-const supabaseAnonKey = (process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '').trim();
+let supabaseUrl = (
+  (typeof process !== 'undefined' && process.env ? (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL) : null) ||
+  (import.meta && import.meta.env ? import.meta.env.VITE_SUPABASE_URL : null) ||
+  ''
+).trim();
+
+const supabaseAnonKey = (
+  (typeof process !== 'undefined' && process.env ? (process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY) : null) ||
+  (import.meta && import.meta.env ? import.meta.env.VITE_SUPABASE_ANON_KEY : null) ||
+  ''
+).trim();
 
 // Automatically sanitize URL if it includes the API path suffix
 if (supabaseUrl.endsWith('/rest/v1/')) {

@@ -147,10 +147,23 @@ export default function App() {
         setProfile(JSON.parse(storedProfile));
       }
       
+      let sessionObj: DailySession | null = null;
+      const todayStr = new Date().toISOString().split('T')[0];
+
       if (storedSession) {
-        setDailySession(JSON.parse(storedSession));
+        try {
+          const parsed = JSON.parse(storedSession) as DailySession;
+          if (parsed && parsed.date === todayStr) {
+            sessionObj = parsed;
+          }
+        } catch (e) {
+          console.warn('Failed to parse stored session:', e);
+        }
+      }
+
+      if (sessionObj) {
+        setDailySession(sessionObj);
       } else {
-        const todayStr = new Date().toISOString().split('T')[0];
         const hours = [8, 12, 16, 20, 22];
         const d = new Date();
         const year = d.getFullYear();

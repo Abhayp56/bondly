@@ -21,7 +21,7 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 // Initialization of Groq API status
 let isGroqKeyMissing = false;
@@ -128,11 +128,17 @@ async function persistRoom(room: ServerRoom) {
   rooms.set(room.roomCode, room);
   if (supabase) {
     try {
-      await supabase.from('rooms').upsert({
+      const { error } = await supabase.from('rooms').upsert({
         room_code: room.roomCode,
         data: room,
         last_updated: new Date().toISOString()
       }, { onConflict: 'room_code' });
+      
+      if (error) {
+        console.error('❌ Supabase DB upsert error:', error.message, error.details);
+      } else {
+        console.log(`✅ Room ${room.roomCode} successfully persisted to Supabase.`);
+      }
     } catch (e) {
       console.warn('Supabase DB upsert warning:', e);
     }
@@ -145,7 +151,10 @@ async function fetchRoom(roomCode: string): Promise<ServerRoom | null> {
   if (rooms.has(cleanCode)) return rooms.get(cleanCode)!;
   if (supabase) {
     try {
-      const { data } = await supabase.from('rooms').select('data').eq('room_code', cleanCode).single();
+      const { data, error } = await supabase.from('rooms').select('data').eq('room_code', cleanCode).single();
+      if (error) {
+        console.warn('⚠️ Supabase DB select error or not found:', error.message);
+      }
       if (data && data.data) {
         rooms.set(cleanCode, data.data as ServerRoom);
         return data.data as ServerRoom;
@@ -232,12 +241,12 @@ function getScheduledUnlockTime(index: number, baseDate?: Date): string {
   const d = baseDate ? new Date(baseDate) : new Date();
   const hours = [8, 12, 16, 20, 22]; // Morning (8 AM), Afternoon (12 PM), Evening (4 PM), Night (8 PM), Late Night (10 PM)
   const selectedHour = hours[index] !== undefined ? hours[index] : 8 + index * 3;
-  
+
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   const hourStr = String(selectedHour).padStart(2, '0');
-  
+
   return `${year}-${month}-${day}T${hourStr}:00:00`;
 }
 
@@ -651,10 +660,10 @@ app.post('/api/rooms/:roomCode/answer', async (req, res) => {
 });
 
 // API: Generate 5 new non-repeating questions for a new day
-app.post('/api/rooms/:roomCode/new-day', (req, res) => {
+app.post('/api/rooms/:roomCode/new-day', async (req, res) => {
   const cleanCode = req.params.roomCode.trim().toUpperCase();
   const slot = (req.body.slot as 'user1' | 'user2') || 'user1';
-  const room = rooms.get(cleanCode);
+  const room = await fetchRoom(cleanCode);
 
   if (!room) {
     return res.status(404).json({ error: 'Room not found' });
@@ -683,14 +692,16 @@ app.post('/api/rooms/:roomCode/new-day', (req, res) => {
   };
   room.lastUpdated = Date.now();
 
+  await persistRoom(room);
+
   return res.json({ roomState: formatRoomForSlot(room, slot) });
 });
 
 // API: Clear all answers in a room
-app.post('/api/rooms/:roomCode/clear', (req, res) => {
+app.post('/api/rooms/:roomCode/clear', async (req, res) => {
   const cleanCode = req.params.roomCode.trim().toUpperCase();
   const slot = (req.body.slot as 'user1' | 'user2') || 'user1';
-  const room = rooms.get(cleanCode);
+  const room = await fetchRoom(cleanCode);
 
   if (!room) {
     return res.status(404).json({ error: 'Room not found' });
@@ -713,6 +724,8 @@ app.post('/api/rooms/:roomCode/clear', (req, res) => {
   room.memories = [];
   room.lastUpdated = Date.now();
 
+  await persistRoom(room);
+
   return res.json({ roomState: formatRoomForSlot(room, slot) });
 });
 
@@ -720,7 +733,7 @@ app.post('/api/rooms/:roomCode/clear', (req, res) => {
 app.post('/api/rooms/:roomCode/summary', async (req, res) => {
   const cleanCode = req.params.roomCode.trim().toUpperCase();
   const slot = (req.body.slot as 'user1' | 'user2') || 'user1';
-  const room = rooms.get(cleanCode);
+  const room = await fetchRoom(cleanCode);
 
   if (!room) {
     return res.status(404).json({ error: 'Room not found' });
@@ -735,6 +748,8 @@ app.post('/api/rooms/:roomCode/summary', async (req, res) => {
   }
 
   room.lastUpdated = Date.now();
+  await persistRoom(room);
+
   return res.json({ roomState: formatRoomForSlot(room, slot) });
 });
 
