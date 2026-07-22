@@ -1,14 +1,21 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
-const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
+let supabaseUrl = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '').trim();
+const supabaseAnonKey = (process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '').trim();
+
+// Automatically sanitize URL if it includes the API path suffix
+if (supabaseUrl.endsWith('/rest/v1/')) {
+  supabaseUrl = supabaseUrl.slice(0, -'/rest/v1/'.length);
+} else if (supabaseUrl.endsWith('/rest/v1')) {
+  supabaseUrl = supabaseUrl.slice(0, -'/rest/v1'.length);
+}
 
 let supabaseInstance: SupabaseClient | null = null;
 
 if (supabaseUrl && supabaseAnonKey && supabaseUrl !== 'YOUR_SUPABASE_URL') {
   try {
     supabaseInstance = createClient(supabaseUrl, supabaseAnonKey);
-    console.log('✅ Supabase client initialized successfully.');
+    console.log('✅ Supabase client initialized successfully with URL:', supabaseUrl);
   } catch (err) {
     console.warn('⚠️ Supabase initialization error, falling back to local mode:', err);
   }
