@@ -224,12 +224,16 @@ export default function AnswerCheckerView({
                 >
                   <div className="flex items-center justify-between">
                     <span className="px-3 py-1 bg-vsoft text-vcoral border border-vsoft-border rounded-full text-[10px] font-extrabold uppercase tracking-wider">
-                      {dailySession.questions[selectedQuestionIndex].category} • {dailySession.questions[selectedQuestionIndex].type === 'multiple_choice' ? 'Choice Match 🎯' : 'Reflection'}
+                      {dailySession.questions[selectedQuestionIndex].category} • {dailySession.questions[selectedQuestionIndex].type === 'multiple_choice' ? 'Choice Match 🎯' : dailySession.questions[selectedQuestionIndex].type === 'prediction' ? 'Prediction Challenge 🎯' : 'Reflection'}
                     </span>
                     <span className={`text-xs font-extrabold px-2.5 py-1 rounded-full border ${
-                      dailySession.questions[selectedQuestionIndex].userAnswer === dailySession.questions[selectedQuestionIndex].partnerAnswer
-                        ? 'text-emerald-600 bg-emerald-50 border-emerald-200'
-                        : 'text-amber-600 bg-amber-50 border-amber-200'
+                      dailySession.questions[selectedQuestionIndex].type === 'multiple_choice'
+                        ? (dailySession.questions[selectedQuestionIndex].userAnswer === dailySession.questions[selectedQuestionIndex].partnerAnswer
+                          ? 'text-emerald-600 bg-emerald-50 border-emerald-200'
+                          : 'text-amber-600 bg-amber-50 border-amber-200')
+                        : ((dailySession.questions[selectedQuestionIndex].similarityScore || 85) >= 80
+                          ? 'text-emerald-600 bg-emerald-50 border-emerald-200'
+                          : 'text-amber-600 bg-amber-50 border-amber-200')
                     }`}>
                       {dailySession.questions[selectedQuestionIndex].type === 'multiple_choice'
                         ? (dailySession.questions[selectedQuestionIndex].userAnswer === dailySession.questions[selectedQuestionIndex].partnerAnswer ? '🎉 Same Choice!' : '💡 Different Choices')
@@ -246,22 +250,47 @@ export default function AnswerCheckerView({
                     {/* User Answer */}
                     <div className="p-4 bg-vsoft/70 border border-vsoft-border rounded-2xl space-y-1">
                       <div className="flex items-center justify-between text-[11px] font-bold text-vcoral">
-                        <span>{profile.name} (Your Choice)</span>
+                        <span>
+                          {profile.name}{' '}
+                          {dailySession.questions[selectedQuestionIndex].type === 'prediction'
+                            ? '(Your Prediction)'
+                            : '(Your Choice)'}
+                        </span>
                         <span>{profile.avatarUrl}</span>
                       </div>
                       <p className="text-xs font-bold text-vcharcoal leading-relaxed">
-                        {dailySession.questions[selectedQuestionIndex].userAnswer ? `"${dailySession.questions[selectedQuestionIndex].userAnswer}"` : 'No selection recorded'}
+                        {dailySession.questions[selectedQuestionIndex].type === 'prediction'
+                          ? (dailySession.questions[selectedQuestionIndex].userPrediction
+                            ? `"${dailySession.questions[selectedQuestionIndex].userPrediction}"`
+                            : 'No prediction recorded')
+                          : (dailySession.questions[selectedQuestionIndex].userAnswer
+                            ? `"${dailySession.questions[selectedQuestionIndex].userAnswer}"`
+                            : 'No selection recorded')}
                       </p>
                     </div>
 
                     {/* Partner Answer */}
                     <div className="p-4 bg-rose-50/70 border border-rose-200/80 rounded-2xl space-y-1">
                       <div className="flex items-center justify-between text-[11px] font-bold text-vcoral">
-                        <span>{profile.partnerName} ({dailySession.questions[selectedQuestionIndex].userAnswer === dailySession.questions[selectedQuestionIndex].partnerAnswer ? 'Matched Choice ✨' : 'Their Choice'})</span>
+                        <span>
+                          {profile.partnerName}{' '}
+                          {dailySession.questions[selectedQuestionIndex].type === 'prediction'
+                            ? '(Their Prediction)'
+                            : dailySession.questions[selectedQuestionIndex].userAnswer ===
+                              dailySession.questions[selectedQuestionIndex].partnerAnswer
+                            ? '(Matched Choice ✨)'
+                            : '(Their Choice)'}
+                        </span>
                         <span>{profile.partnerAvatarUrl || '🌸'}</span>
                       </div>
                       <p className="text-xs font-bold text-vcharcoal leading-relaxed">
-                        {dailySession.questions[selectedQuestionIndex].partnerAnswer ? `"${dailySession.questions[selectedQuestionIndex].partnerAnswer}"` : 'No selection recorded'}
+                        {dailySession.questions[selectedQuestionIndex].type === 'prediction'
+                          ? (dailySession.questions[selectedQuestionIndex].partnerPrediction
+                            ? `"${dailySession.questions[selectedQuestionIndex].partnerPrediction}"`
+                            : 'No prediction recorded')
+                          : (dailySession.questions[selectedQuestionIndex].partnerAnswer
+                            ? `"${dailySession.questions[selectedQuestionIndex].partnerAnswer}"`
+                            : 'No selection recorded')}
                       </p>
                     </div>
                   </div>

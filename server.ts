@@ -344,14 +344,17 @@ async function evaluateAnswersInternal(
     }
 
     if (type === 'prediction') {
-      const pAns = (userPrediction || '').toLowerCase().trim();
-      const actAns = (partnerAnswer || '').toLowerCase().trim();
-      if (pAns && actAns && (pAns === actAns || pAns.includes(actAns) || actAns.includes(pAns))) {
-        score = 96;
-        commentary = `Incredible prediction! You perfectly understood what your partner would say. This level of synchronization shows a beautiful connection.`;
+      const p1 = (userPrediction || '').toLowerCase().trim();
+      const p2 = (partnerPrediction || '').toLowerCase().trim();
+      if (p1 && p2) {
+        const isOverlap = p1 === p2 || p1.includes(p2) || p2.includes(p1);
+        score = isOverlap ? 96 : 85;
+        commentary = isOverlap
+          ? `Incredible alignment! Your predictions perfectly match. This shows an amazing intuitive connection.`
+          : `Predictions submitted! Reviewing each other's predictions offers a wonderful window into how you understand one another.`;
       } else {
-        score = 74;
-        commentary = `A playful miss! While the prediction didn't align perfectly, the difference highlights a surprising, delightful aspect of their personality.`;
+        score = 60;
+        commentary = `Waiting for both predictions to be submitted.`;
       }
     } else {
       score = 90;
@@ -369,8 +372,9 @@ async function evaluateAnswersInternal(
       Category: "${category}"
       Challenge Type: "${type}" (self means they answered for themselves, prediction means User predicted Partner's answer)
       
-      ${type === 'prediction' ? `User's Prediction of Partner: "${userPrediction}"\nPartner's Actual Answer: "${partnerAnswer}"` : `User 1 Answer: "${userAnswer}"\nUser 2 Answer: "${partnerAnswer}"`}
+      ${type === 'prediction' ? `User 1's Prediction of User 2: "${userPrediction}"\nUser 2's Prediction of User 1: "${partnerPrediction}"` : `User 1 Answer: "${userAnswer}"\nUser 2 Answer: "${partnerAnswer}"`}
       
+      For prediction type: evaluate how closely they predicted each other's perspectives or how well their predictions show mutual understanding and appreciation.
       Calculate a similarity/accuracy percentage (an integer between 0 and 100).
       Write a warm, cozy, and highly personalized AI commentary (exactly 1-2 sentences) commenting on their answers.
       Tone: emotional, supportive, delight-driven. Use "you" and "your partner".
