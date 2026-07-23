@@ -152,8 +152,8 @@ async function fetchRoom(roomCode: string): Promise<ServerRoom | null> {
   if (supabase) {
     try {
       const { data, error } = await supabase.from('rooms').select('data').eq('room_code', cleanCode).single();
-      if (error) {
-        console.warn('⚠️ Supabase DB select error or not found:', error.message);
+      if (error && error.code !== 'PGRST116') {
+        console.warn('⚠️ Supabase DB select error:', error.message);
       }
       if (data && data.data) {
         rooms.set(cleanCode, data.data as ServerRoom);
