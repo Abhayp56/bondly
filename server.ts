@@ -239,18 +239,6 @@ const QUESTION_POOL = [
 
 // Calculate Scheduled Unlock Times (8 AM, 12 PM, 4 PM, 8 PM, 10 PM)
 function getScheduledUnlockTime(index: number, baseDate?: Date): string {
-  const bypassLock = process.env.BYPASS_TIME_LOCK === 'true';
-  if (bypassLock) {
-    const d = new Date(Date.now() - 60000); // 1 minute ago
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    const hourStr = String(d.getHours()).padStart(2, '0');
-    const minStr = String(d.getMinutes()).padStart(2, '0');
-    const secStr = String(d.getSeconds()).padStart(2, '0');
-    return `${year}-${month}-${day}T${hourStr}:${minStr}:${secStr}`;
-  }
-
   const d = baseDate ? new Date(baseDate) : new Date();
   const hours = [8, 12, 16, 20, 22]; // Morning (8 AM), Afternoon (12 PM), Evening (4 PM), Night (8 PM), Late Night (10 PM)
   const selectedHour = hours[index] !== undefined ? hours[index] : 8 + index * 3;

@@ -225,20 +225,10 @@ export default function App() {
         const month = String(d.getMonth() + 1).padStart(2, '0');
         const day = String(d.getDate()).padStart(2, '0');
 
-        const bypassLock = import.meta.env.VITE_BYPASS_TIME_LOCK === 'true';
         const sessionQs: DailyQuestion[] = DEFAULT_QUESTIONS.slice(0, 5).map((q, idx) => {
-          let unlockTimeStr: string;
-          if (bypassLock) {
-            const pastDate = new Date(Date.now() - 60000);
-            const hourStr = String(pastDate.getHours()).padStart(2, '0');
-            const minStr = String(pastDate.getMinutes()).padStart(2, '0');
-            const secStr = String(pastDate.getSeconds()).padStart(2, '0');
-            unlockTimeStr = `${year}-${month}-${day}T${hourStr}:${minStr}:${secStr}`;
-          } else {
-            const selectedHour = hours[idx] !== undefined ? hours[idx] : 8 + idx * 3;
-            const hourStr = String(selectedHour).padStart(2, '0');
-            unlockTimeStr = `${year}-${month}-${day}T${hourStr}:00:00`;
-          }
+          const selectedHour = hours[idx] !== undefined ? hours[idx] : 8 + idx * 3;
+          const hourStr = String(selectedHour).padStart(2, '0');
+          const unlockTimeStr = `${year}-${month}-${day}T${hourStr}:00:00`;
           return {
             id: `dq_${q.id}`,
             questionId: q.id,

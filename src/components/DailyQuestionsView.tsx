@@ -85,7 +85,7 @@ export default function DailyQuestionsView({
   };
 
   const unlockDate = getQuestionUnlockDate(activeQuestion.unlockTime, currentIndex);
-  const isLocked = import.meta.env.VITE_BYPASS_TIME_LOCK === 'true' ? false : unlockDate > new Date();
+  const isLocked = unlockDate > new Date();
   const formattedUnlockTime = unlockDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
   // Trigger answer submission
