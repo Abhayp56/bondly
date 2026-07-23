@@ -7,6 +7,8 @@ import {
 import { Profile, DailySession, Memory, FriendshipTimelineEvent, Achievement, DailyQuestion } from './types';
 import { DEFAULT_QUESTIONS, INITIAL_ACHIEVEMENTS, INITIAL_TIMELINE_EVENTS } from './data';
 import { requestAppNotificationPermission, sendAppNotification, syncDailyQuestionNotifications } from './services/notificationService';
+import { supabase } from './lib/supabaseClient';
+import { getApiUrl } from './config';
 
 import Onboarding from './components/Onboarding';
 import DailyQuestionsView from './components/DailyQuestionsView';
@@ -149,17 +151,70 @@ export default function App() {
       
       let sessionObj: DailySession | null = null;
       const todayStr = new Date().toISOString().split('T')[0];
+      let loadedMemories: Memory[] = [];
+
+      if (storedMemories) {
+        try {
+          loadedMemories = JSON.parse(storedMemories);
+        } catch (e) {
+          console.warn('Failed to parse memories:', e);
+        }
+      }
 
       if (storedSession) {
         try {
           const parsed = JSON.parse(storedSession) as DailySession;
-          if (parsed && parsed.date === todayStr) {
-            sessionObj = parsed;
+          if (parsed) {
+            if (parsed.date === todayStr) {
+              sessionObj = parsed;
+            } else {
+              // Rollover: Archive answered questions from previous session client-side
+              const archivedList = [...loadedMemories];
+              let modified = false;
+              parsed.questions.forEach(q => {
+                const user1Responded = q.answeredByUser;
+                const user2Responded = q.answeredByPartner;
+                if (user1Responded || user2Responded) {
+                  const alreadyArchived = archivedList.some(
+                    m => m.questionText === q.text && m.date === parsed.date
+                  );
+                  if (!alreadyArchived) {
+                    archivedList.unshift({
+                      id: `mem_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+                      date: parsed.date,
+                      questionText: q.text,
+                      category: q.category,
+                      userAnswer: q.type === 'prediction' ? (q.userPrediction || '') : (q.userAnswer || ''),
+                      partnerAnswer: q.partnerAnswer || '',
+                      similarityScore: q.similarityScore || 85,
+                      aiCommentary: q.aiCommentary || 'Shared wonderful thoughts reflecting your connection.',
+                    });
+                    modified = true;
+                  }
+                }
+              });
+              if (modified) {
+                loadedMemories = archivedList;
+              }
+            }
           }
         } catch (e) {
           console.warn('Failed to parse stored session:', e);
         }
       }
+
+      // Memory Cleanup: purge memories older than 2 days client-side
+      const todayDateObj = new Date(todayStr);
+      loadedMemories = loadedMemories.filter(mem => {
+        const memDateObj = new Date(mem.date);
+        if (isNaN(memDateObj.getTime())) return true;
+        const diffTime = todayDateObj.getTime() - memDateObj.getTime();
+        const diffDays = diffTime / (1000 * 60 * 60 * 24);
+        return diffDays <= 2; // Keep if <= 2 days old (removes after the day after tomorrow)
+      });
+
+      setMemories(loadedMemories);
+      localStorage.setItem('bondly_memories', JSON.stringify(loadedMemories));
 
       if (sessionObj) {
         setDailySession(sessionObj);
@@ -170,9 +225,20 @@ export default function App() {
         const month = String(d.getMonth() + 1).padStart(2, '0');
         const day = String(d.getDate()).padStart(2, '0');
 
+        const bypassLock = import.meta.env.VITE_BYPASS_TIME_LOCK === 'true';
         const sessionQs: DailyQuestion[] = DEFAULT_QUESTIONS.slice(0, 5).map((q, idx) => {
-          const selectedHour = hours[idx] !== undefined ? hours[idx] : 8 + idx * 3;
-          const hourStr = String(selectedHour).padStart(2, '0');
+          let unlockTimeStr: string;
+          if (bypassLock) {
+            const pastDate = new Date(Date.now() - 60000);
+            const hourStr = String(pastDate.getHours()).padStart(2, '0');
+            const minStr = String(pastDate.getMinutes()).padStart(2, '0');
+            const secStr = String(pastDate.getSeconds()).padStart(2, '0');
+            unlockTimeStr = `${year}-${month}-${day}T${hourStr}:${minStr}:${secStr}`;
+          } else {
+            const selectedHour = hours[idx] !== undefined ? hours[idx] : 8 + idx * 3;
+            const hourStr = String(selectedHour).padStart(2, '0');
+            unlockTimeStr = `${year}-${month}-${day}T${hourStr}:00:00`;
+          }
           return {
             id: `dq_${q.id}`,
             questionId: q.id,
@@ -184,7 +250,7 @@ export default function App() {
             answeredByPartner: false,
             userAnswer: '',
             partnerAnswer: '',
-            unlockTime: `${year}-${month}-${day}T${hourStr}:00:00`
+            unlockTime: unlockTimeStr
           };
         });
 
@@ -195,13 +261,6 @@ export default function App() {
         };
         setDailySession(newSession);
         localStorage.setItem('bondly_daily_session', JSON.stringify(newSession));
-      }
-
-      if (storedMemories) {
-        setMemories(JSON.parse(storedMemories));
-      } else {
-        setMemories(DEFAULT_MEMORIES);
-        localStorage.setItem('bondly_memories', JSON.stringify(DEFAULT_MEMORIES));
       }
 
       if (storedTimeline) {
@@ -221,6 +280,165 @@ export default function App() {
       console.error('Failed to load local storage data:', e);
     }
   }, []);
+
+  // Sync Room State from Server
+  useEffect(() => {
+    if (!profile || !profile.roomCode) return;
+
+    const fetchRoomState = async () => {
+      try {
+        const res = await fetch(getApiUrl(`/api/rooms/${profile.roomCode}?slot=${profile.slot || 'user1'}`));
+        if (res.ok) {
+          const data = await res.json();
+          if (data.roomState) {
+            if (data.roomState.dailySession) {
+              setDailySession(data.roomState.dailySession);
+              localStorage.setItem('bondly_daily_session', JSON.stringify(data.roomState.dailySession));
+            }
+            if (data.roomState.memories) {
+              setMemories(data.roomState.memories);
+              localStorage.setItem('bondly_memories', JSON.stringify(data.roomState.memories));
+            }
+            if (data.roomState.timeline) {
+              setTimelineEvents(data.roomState.timeline);
+              localStorage.setItem('bondly_timeline', JSON.stringify(data.roomState.timeline));
+            }
+            if (data.roomState.profile) {
+              const serverProfile = data.roomState.profile;
+              if (
+                profile.streakCount !== serverProfile.streakCount ||
+                profile.connected !== serverProfile.connected ||
+                profile.partnerName !== serverProfile.partnerName
+              ) {
+                const mergedProfile = { ...profile, ...serverProfile };
+                setProfile(mergedProfile);
+                localStorage.setItem('bondly_profile', JSON.stringify(mergedProfile));
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Sync room state error:', e);
+      }
+    };
+
+    // 1. Supabase Realtime WebSocket Listener (Instant Sync)
+    let channel: any = null;
+    if (supabase) {
+      channel = supabase
+        .channel(`room_${profile.roomCode}`)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'rooms', filter: `room_code=eq.${profile.roomCode}` },
+          () => fetchRoomState()
+        )
+        .subscribe();
+    }
+
+    // 2. High-speed HTTP Fallback Polling
+    fetchRoomState(); // Run immediately
+    const pollInterval = setInterval(fetchRoomState, 4000);
+
+    return () => {
+      clearInterval(pollInterval);
+      if (channel && supabase) {
+        supabase.removeChannel(channel);
+      }
+    };
+  }, [profile?.roomCode, profile?.slot, profile?.streakCount, profile?.connected, profile?.partnerName]);
+
+  // AI Companion mode rollover / completion logic
+  useEffect(() => {
+    if (!profile || profile.roomCode || !dailySession) return;
+
+    const allCompleted = dailySession.questions.every(q => q.answeredByUser && q.answeredByPartner);
+    if (allCompleted && !dailySession.compatibilityScore) {
+      const getSummary = async () => {
+        try {
+          const res = await fetch(getApiUrl('/api/ai/session-summary'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ questions: dailySession.questions })
+          });
+          if (res.ok) {
+            const summaryData = await res.json();
+            
+            // 1. Update dailySession
+            const finalSession: DailySession = {
+              ...dailySession,
+              compatibilityScore: summaryData.compatibilityScore,
+              breakdown: summaryData.breakdown,
+              aiSummary: summaryData.aiSummary,
+              completedAt: new Date().toISOString()
+            };
+            setDailySession(finalSession);
+            localStorage.setItem('bondly_daily_session', JSON.stringify(finalSession));
+
+            // 2. Increment streak in profile
+            const updatedProfile = {
+              ...profile,
+              streakCount: (profile.streakCount || 0) + 1
+            };
+            setProfile(updatedProfile);
+            localStorage.setItem('bondly_profile', JSON.stringify(updatedProfile));
+
+            // 3. Add timeline event
+            const completedDate = new Date().toISOString().split('T')[0];
+            const newTimelineEvent = {
+              id: `evt_completed_${Date.now()}`,
+              title: 'Daily Prompts Completed! 🎉',
+              description: `Completed all 5 daily prompts with a bond score of ${summaryData.compatibilityScore}%!`,
+              date: completedDate,
+              type: 'milestone',
+              icon: '💖'
+            };
+            const updatedTimeline = [newTimelineEvent, ...timelineEvents];
+            setTimelineEvents(updatedTimeline);
+            localStorage.setItem('bondly_timeline', JSON.stringify(updatedTimeline));
+          }
+        } catch (e) {
+          console.warn('AI summary fetch failed:', e);
+        }
+      };
+      getSummary();
+    }
+  }, [dailySession, profile, timelineEvents]);
+
+  // Unlock achievements automatically based on current progress
+  useEffect(() => {
+    if (!profile) return;
+
+    let achievementsChanged = false;
+    const updatedAchievements = achievements.map(ach => {
+      if (ach.earned) return ach;
+
+      let earned = false;
+      if (ach.id === 'ach_streak_7' && profile.streakCount >= 7) {
+        earned = true;
+      } else if (ach.id === 'ach_streak_30' && profile.streakCount >= 30) {
+        earned = true;
+      } else if (ach.id === 'ach_q_100' && memories.length >= 100) {
+        earned = true;
+      } else if (ach.id === 'ach_soul_sync' && dailySession?.compatibilityScore && dailySession.compatibilityScore >= 95) {
+        earned = true;
+      } else if (ach.id === 'ach_perfect_pred') {
+        const hasPerfect = dailySession?.questions.some(q => q.similarityScore && q.similarityScore >= 95 && q.type === 'prediction') ||
+                           memories.some(m => m.similarityScore >= 95 && m.userAnswer.startsWith('Prediction:'));
+        if (hasPerfect) earned = true;
+      }
+
+      if (earned) {
+        achievementsChanged = true;
+        return { ...ach, earned: true };
+      }
+      return ach;
+    });
+
+    if (achievementsChanged) {
+      setAchievements(updatedAchievements);
+      localStorage.setItem('bondly_achievements', JSON.stringify(updatedAchievements));
+    }
+  }, [profile?.streakCount, dailySession?.compatibilityScore, memories?.length, achievements]);
 
   const handleUpdateSession = (updatedSession: DailySession) => {
     setDailySession(updatedSession);

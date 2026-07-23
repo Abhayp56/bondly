@@ -6,7 +6,6 @@ import {
 } from 'lucide-react';
 import { Profile, DailyQuestion, DailySession, Memory } from '../types';
 import confetti from 'canvas-confetti';
-import { supabase } from '../lib/supabaseClient';
 import { getApiUrl } from '../config';
 
 interface DailyQuestionsProps {
@@ -40,71 +39,7 @@ export default function DailyQuestionsView({
   const [isFlipped, setIsFlipped] = useState(false);
   const [errMsg, setErrMsg] = useState('');
 
-  // Live Room Realtime Sync & Polling Effect
-  useEffect(() => {
-    if (!profile.roomCode) return;
 
-    const fetchRoomState = async () => {
-      try {
-        const res = await fetch(getApiUrl(`/api/rooms/${profile.roomCode}?slot=${profile.slot || 'user1'}`));
-        if (res.ok) {
-          const data = await res.json();
-          if (data.roomState && data.roomState.dailySession) {
-            onUpdateSession(data.roomState.dailySession);
-          }
-        }
-      } catch (e) {
-        // Silent update
-      }
-    };
-
-    // 1. Supabase Realtime WebSocket Listener (Instant Sync)
-    let channel: any = null;
-    if (supabase) {
-      channel = supabase
-        .channel(`room_${profile.roomCode}`)
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'rooms', filter: `room_code=eq.${profile.roomCode}` },
-          () => fetchRoomState()
-        )
-        .subscribe();
-    }
-
-    // 2. High-speed HTTP Fallback Polling
-    const pollInterval = setInterval(fetchRoomState, 2000);
-
-    return () => {
-      clearInterval(pollInterval);
-      if (channel && supabase) {
-        supabase.removeChannel(channel);
-      }
-    };
-  }, [profile.roomCode, profile.slot]);
-
-  const handleLoadNewDay = async () => {
-    if (profile.roomCode) {
-      try {
-        const res = await fetch(getApiUrl(`/api/rooms/${profile.roomCode}/new-day`), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ slot: profile.slot || 'user1' })
-        });
-        if (res.ok) {
-          const data = await res.json();
-          onUpdateSession(data.roomState.dailySession);
-          setCurrentIndex(0);
-          setUserAnswer('');
-          setUserPrediction('');
-          setUserExplanation('');
-          setShowReveal(false);
-          setIsFlipped(false);
-        }
-      } catch (e) {
-        console.error(e);
-      }
-    }
-  };
 
   // Active Question
   const activeQuestion: DailyQuestion | undefined = dailySession?.questions[currentIndex];
@@ -119,7 +54,7 @@ export default function DailyQuestionsView({
       setIsFlipped(bothDone);
       setErrMsg('');
     }
-  }, [currentIndex, activeQuestion?.answeredByUser, activeQuestion?.answeredByPartner]);
+  }, [currentIndex]);
 
   if (!dailySession || !activeQuestion) {
     return (
@@ -524,14 +459,6 @@ export default function DailyQuestionsView({
                       <span className="text-xs font-extrabold uppercase tracking-wider block">🎉 All 5 Daily Prompts Completed!</span>
                       <p className="text-[11px] text-white/90">Go to the Answer Checker tab to reveal all answers & compatibility scores!</p>
                     </div>
-
-                    <button
-                      onClick={handleLoadNewDay}
-                      className="w-full py-3 bg-vsoft border border-vsoft-border text-vcharcoal hover:bg-vsoft/80 rounded-full font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
-                    >
-                      <span>Generate 5 New Prompts ✨</span>
-                      <Sparkles className="w-4 h-4 text-vcoral" />
-                    </button>
                   </div>
                 )}
               </div>

@@ -238,6 +238,18 @@ const QUESTION_POOL = [
 
 // Calculate Scheduled Unlock Times (8 AM, 12 PM, 4 PM, 8 PM, 10 PM)
 function getScheduledUnlockTime(index: number, baseDate?: Date): string {
+  const bypassLock = process.env.BYPASS_TIME_LOCK === 'true';
+  if (bypassLock) {
+    const d = new Date(Date.now() - 60000); // 1 minute ago
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const hourStr = String(d.getHours()).padStart(2, '0');
+    const minStr = String(d.getMinutes()).padStart(2, '0');
+    const secStr = String(d.getSeconds()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hourStr}:${minStr}:${secStr}`;
+  }
+
   const d = baseDate ? new Date(baseDate) : new Date();
   const hours = [8, 12, 16, 20, 22]; // Morning (8 AM), Afternoon (12 PM), Evening (4 PM), Night (8 PM), Late Night (10 PM)
   const selectedHour = hours[index] !== undefined ? hours[index] : 8 + index * 3;
@@ -551,7 +563,56 @@ app.get('/api/rooms/:roomCode', async (req, res) => {
 
   // Automatic Midnight Rollover: Check if date has changed
   const todayStr = new Date().toISOString().split('T')[0];
+  let roomUpdated = false;
+
   if (room.currentDate !== todayStr) {
+    // Backup old daily session questions to memories before resetting dailySession
+    if (room.dailySession && room.dailySession.questions) {
+      for (const q of room.dailySession.questions) {
+        const user1Responded = q.type === 'prediction' ? !!q.user1Prediction : !!q.user1Answer;
+        const user2Responded = q.type === 'prediction' ? !!q.user2Prediction : !!q.user2Answer;
+
+        if (user1Responded || user2Responded) {
+          const alreadyArchived = room.memories.some(
+            m => m.questionText === q.text && m.date === room.dailySession.date
+          );
+          if (!alreadyArchived) {
+            let similarityScore = q.similarityScore;
+            let aiCommentary = q.aiCommentary;
+            if (!similarityScore) {
+              try {
+                const aiResult = await evaluateAnswersInternal(
+                  q.text,
+                  q.category,
+                  q.type,
+                  q.user1Answer || '',
+                  q.user2Answer || '',
+                  q.user1Prediction || '',
+                  q.user2Prediction || ''
+                );
+                similarityScore = aiResult.similarityScore;
+                aiCommentary = aiResult.aiCommentary;
+              } catch (e) {
+                similarityScore = 85;
+                aiCommentary = 'Shared wonderful thoughts reflecting your connection.';
+              }
+            }
+
+            room.memories.unshift({
+              id: `mem_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+              date: room.dailySession.date,
+              questionText: q.text,
+              category: q.category,
+              userAnswer: q.user1Answer || q.user1Prediction || '',
+              partnerAnswer: q.user2Answer || q.user2Prediction || '',
+              similarityScore,
+              aiCommentary,
+            });
+          }
+        }
+      }
+    }
+
     const usedSet = new Set<string>(room.usedQuestionIds || []);
     const picked = getNonRepeatingQuestions(usedSet, 5);
     const todayDate = new Date();
@@ -574,8 +635,27 @@ app.get('/api/rooms/:roomCode', async (req, res) => {
       date: todayStr,
       questions: roomQuestions
     };
-    room.lastUpdated = Date.now();
+    roomUpdated = true;
+  }
 
+  // Auto-delete expired memories (older than 2 days)
+  if (room.memories && room.memories.length > 0) {
+    const todayDateObj = new Date(todayStr);
+    const originalLength = room.memories.length;
+    room.memories = room.memories.filter(mem => {
+      const memDateObj = new Date(mem.date);
+      if (isNaN(memDateObj.getTime())) return true;
+      const diffTime = todayDateObj.getTime() - memDateObj.getTime();
+      const diffDays = diffTime / (1000 * 60 * 60 * 24);
+      return diffDays <= 2; // Keep if <= 2 days old (removes after the day after tomorrow)
+    });
+    if (room.memories.length !== originalLength) {
+      roomUpdated = true;
+    }
+  }
+
+  if (roomUpdated) {
+    room.lastUpdated = Date.now();
     await persistRoom(room);
   }
 
@@ -652,6 +732,44 @@ app.post('/api/rooms/:roomCode/answer', async (req, res) => {
       similarityScore: aiResult.similarityScore,
       aiCommentary: aiResult.aiCommentary,
     });
+
+    // Check if all 5 questions are complete
+    const allCompleted = room.dailySession.questions.every(dq => {
+      const u1Done = dq.type === 'prediction' ? !!dq.user1Prediction : !!dq.user1Answer;
+      const u2Done = dq.type === 'prediction' ? !!dq.user2Prediction : !!dq.user2Answer;
+      return u1Done && u2Done;
+    });
+
+    if (allCompleted && !room.dailySession.compatibilityScore) {
+      try {
+        const summaryData = await generateSessionSummaryInternal(room.dailySession.questions);
+        room.dailySession.compatibilityScore = summaryData.compatibilityScore;
+        room.dailySession.breakdown = summaryData.breakdown;
+        room.dailySession.aiSummary = summaryData.aiSummary;
+        room.dailySession.completedAt = new Date().toISOString();
+
+        // Increment streaks for both users
+        if (room.user1) {
+          room.user1.streakCount = (room.user1.streakCount || 0) + 1;
+        }
+        if (room.user2) {
+          room.user2.streakCount = (room.user2.streakCount || 0) + 1;
+        }
+
+        // Push milestone event to timeline
+        const completedDate = new Date().toISOString().split('T')[0];
+        room.timeline.unshift({
+          id: `evt_completed_${Date.now()}`,
+          title: 'Daily Prompts Completed! 🎉',
+          description: `Completed all 5 daily prompts with a bond score of ${summaryData.compatibilityScore}%!`,
+          date: completedDate,
+          type: 'milestone',
+          icon: '💖'
+        });
+      } catch (e) {
+        console.error('Failed to generate summary in answer handler:', e);
+      }
+    }
   }
 
   room.lastUpdated = Date.now();
@@ -659,42 +777,9 @@ app.post('/api/rooms/:roomCode/answer', async (req, res) => {
   return res.json({ roomState: formatRoomForSlot(room, slot || 'user1') });
 });
 
-// API: Generate 5 new non-repeating questions for a new day
+// API: Generate 5 new non-repeating questions for a new day (Disabled)
 app.post('/api/rooms/:roomCode/new-day', async (req, res) => {
-  const cleanCode = req.params.roomCode.trim().toUpperCase();
-  const slot = (req.body.slot as 'user1' | 'user2') || 'user1';
-  const room = await fetchRoom(cleanCode);
-
-  if (!room) {
-    return res.status(404).json({ error: 'Room not found' });
-  }
-
-  const usedSet = new Set<string>(room.usedQuestionIds || []);
-  const picked = getNonRepeatingQuestions(usedSet, 5);
-  const todayStr = new Date().toISOString().split('T')[0];
-
-  const roomQuestions: RoomQuestion[] = picked.map((q, idx) => ({
-    id: `dq_${q.id}_${Date.now()}`,
-    questionId: q.id,
-    text: q.text,
-    category: q.category,
-    type: q.type,
-    difficulty: q.difficulty,
-    unlockTime: getScheduledUnlockTime(idx),
-  }));
-
-  room.usedQuestionIds = Array.from(usedSet);
-  room.currentDate = todayStr;
-  room.dailySession = {
-    id: `sess_${todayStr}_${Date.now()}`,
-    date: todayStr,
-    questions: roomQuestions
-  };
-  room.lastUpdated = Date.now();
-
-  await persistRoom(room);
-
-  return res.json({ roomState: formatRoomForSlot(room, slot) });
+  return res.status(400).json({ error: 'Manual prompt generation is disabled.' });
 });
 
 // API: Clear all answers in a room
