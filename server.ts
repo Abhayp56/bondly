@@ -125,6 +125,7 @@ const rooms: Map<string, ServerRoom> = new Map();
 
 // Helper to save room to Supabase DB
 async function persistRoom(room: ServerRoom) {
+  room.lastUpdated = Date.now();
   rooms.set(room.roomCode, room);
   if (supabase) {
     try {
@@ -940,3 +941,18 @@ async function startServer() {
 }
 
 startServer();
+
+// Periodically clean up rooms older than 1 hour from in-memory Map
+setInterval(() => {
+  const oneHourAgo = Date.now() - 3600000; // 1 hour threshold
+  let cleanedCount = 0;
+  for (const [roomCode, room] of rooms.entries()) {
+    if (room.lastUpdated && room.lastUpdated < oneHourAgo) {
+      rooms.delete(roomCode);
+      cleanedCount++;
+    }
+  }
+  if (cleanedCount > 0) {
+    console.log(`🧹 Cache Garbage Collector: Evicted ${cleanedCount} inactive rooms from memory.`);
+  }
+}, 600000); // Check every 10 minutes
