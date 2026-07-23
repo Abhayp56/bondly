@@ -721,17 +721,7 @@ app.post('/api/rooms/:roomCode/answer', async (req, res) => {
     q.similarityScore = aiResult.similarityScore;
     q.aiCommentary = aiResult.aiCommentary;
 
-    // Push to shared memories
-    room.memories.unshift({
-      id: `mem_${Date.now()}_${questionIndex}`,
-      date: room.dailySession.date,
-      questionText: q.text,
-      category: q.category,
-      userAnswer: q.user1Answer || q.user1Prediction || '',
-      partnerAnswer: q.user2Answer || q.user2Prediction || '',
-      similarityScore: aiResult.similarityScore,
-      aiCommentary: aiResult.aiCommentary,
-    });
+
 
     // Check if all 5 questions are complete
     const allCompleted = room.dailySession.questions.every(dq => {

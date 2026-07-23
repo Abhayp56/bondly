@@ -12,7 +12,6 @@ interface DailyQuestionsProps {
   profile: Profile;
   dailySession: DailySession | null;
   onUpdateSession: (updatedSession: DailySession) => void;
-  onAddMemory: (memory: Memory) => void;
 }
 
 const SCHEDULE_LABELS = [
@@ -26,8 +25,7 @@ const SCHEDULE_LABELS = [
 export default function DailyQuestionsView({ 
   profile, 
   dailySession, 
-  onUpdateSession, 
-  onAddMemory 
+  onUpdateSession 
 }: DailyQuestionsProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userAnswer, setUserAnswer] = useState('');
@@ -87,7 +85,7 @@ export default function DailyQuestionsView({
   };
 
   const unlockDate = getQuestionUnlockDate(activeQuestion.unlockTime, currentIndex);
-  const isLocked = unlockDate > new Date();
+  const isLocked = import.meta.env.VITE_BYPASS_TIME_LOCK === 'true' ? false : unlockDate > new Date();
   const formattedUnlockTime = unlockDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
   // Trigger answer submission
@@ -182,18 +180,6 @@ export default function DailyQuestionsView({
           setShowReveal(true);
           setTimeout(() => setIsFlipped(true), 300);
           confetti({ particleCount: 80, spread: 60, origin: { y: 0.75 } });
-
-          const newMemory: Memory = {
-            id: `mem_${Date.now()}`,
-            date: dailySession.date,
-            questionText: updatedQuestion.text,
-            category: updatedQuestion.category,
-            userAnswer: updatedQuestion.type === 'prediction' ? `Prediction: ${updatedQuestion.userPrediction}` : updatedQuestion.userAnswer,
-            partnerAnswer: updatedQuestion.partnerAnswer,
-            similarityScore: updatedQuestion.similarityScore || 85,
-            aiCommentary: updatedQuestion.aiCommentary || 'Incredible synchrony!',
-          };
-          onAddMemory(newMemory);
         }
       }
     } catch (e) {

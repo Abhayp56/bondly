@@ -445,11 +445,7 @@ export default function App() {
     localStorage.setItem('bondly_daily_session', JSON.stringify(updatedSession));
   };
 
-  const handleAddMemory = (newMemory: Memory) => {
-    const updated = [newMemory, ...memories];
-    setMemories(updated);
-    localStorage.setItem('bondly_memories', JSON.stringify(updated));
-  };
+
 
   const handleCompleteOnboarding = (newProfile: Profile, roomState?: any) => {
     setProfile(newProfile);
@@ -685,7 +681,6 @@ export default function App() {
                     profile={profile}
                     dailySession={dailySession}
                     onUpdateSession={handleUpdateSession}
-                    onAddMemory={handleAddMemory}
                   />
                 )}
 
