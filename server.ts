@@ -264,6 +264,77 @@ function getNonRepeatingQuestions(usedSet: Set<string>, count = 5): any[] {
   return selected;
 }
 
+// Fallback to choose random static questions from the static pool
+function getRandomStaticQuestions(pastQuestionTexts: string[], count = 5): any[] {
+  const normalizedPast = (pastQuestionTexts || []).map(t => t.trim().toLowerCase());
+  let available = QUESTION_POOL.filter(q => !normalizedPast.includes((q.text || '').trim().toLowerCase()));
+  if (available.length < count) {
+    available = [...QUESTION_POOL];
+  }
+  const shuffled = [...available].sort(() => Math.random() - 0.5);
+  const selected = shuffled.slice(0, count);
+  return selected.map((q, idx) => ({
+    id: `dq_${q.id}_${Date.now()}_${idx}`,
+    ...q
+  }));
+}
+
+// Generates 5 unique daily questions via Groq API (llama-3.3-70b-versatile)
+async function generateAIQuestions(pastQuestionTexts: string[] = []): Promise<any[]> {
+  const apiKey = process.env.GROQ_API_KEY;
+  const isKeyMissing = !apiKey || apiKey === 'YOUR_GROQ_API_KEY' || apiKey.trim() === '';
+
+  if (isKeyMissing) {
+    console.warn('⚠️ Groq API key is missing. Falling back to static question pool.');
+    return getRandomStaticQuestions(pastQuestionTexts);
+  }
+
+  try {
+    const prompt = `
+      You are Bondly's question-generation engine.
+      Generate exactly 5 unique, engaging, and easy-to-understand daily questions for friends/partners.
+      Do not repeat or overlap with these past questions:
+      ${pastQuestionTexts.length > 0 ? pastQuestionTexts.map((q, i) => `${i+1}. ${q}`).join('\n') : 'None'}
+
+      Include questions in these categories:
+      - Friendship
+      - Fun
+      - Emotional
+      - Deep Thinking
+      - Future
+
+      Make sure:
+      1. At least 1-2 questions are "multiple_choice" questions, containing an array of 4 options (strings with emoji illustrations).
+      2. At least 1 question is a "prediction" question where one partner predicts the other's answer.
+      3. The rest can be "self" questions (simple questions answered for oneself).
+      
+      Generate response matching the specified JSON schema.
+    `;
+
+    const schemaDesc = `{
+      questions: Array<{
+        text: string,
+        category: string (Friendship, Fun, Emotional, Deep Thinking, Future),
+        type: string (self, prediction, multiple_choice),
+        difficulty: string (Easy, Medium, Deep),
+        options?: Array<string> (only if type is multiple_choice, exactly 4 options)
+      }>
+    }`;
+
+    const data = await callGroqAPI(prompt, schemaDesc);
+    if (data && Array.isArray(data.questions) && data.questions.length === 5) {
+      return data.questions.map((q: any, idx: number) => ({
+        id: `ai_${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 5)}`,
+        ...q
+      }));
+    }
+    throw new Error('Invalid or incomplete AI response structure');
+  } catch (error) {
+    console.error('❌ AI question generation error:', error);
+    return getRandomStaticQuestions(pastQuestionTexts);
+  }
+}
+
 function formatRoomForSlot(room: ServerRoom, slot: 'user1' | 'user2') {
   const isUser1 = slot === 'user1';
   const myProfile = isUser1 ? room.user1 : room.user2;
@@ -471,16 +542,15 @@ app.post('/api/rooms/create', async (req, res) => {
   const code = 'BOND-' + Math.floor(1000 + Math.random() * 9000);
   const todayStr = new Date().toISOString().split('T')[0];
 
-  const usedSet = new Set<string>();
-  const picked = getNonRepeatingQuestions(usedSet, 5);
+  const picked = await generateAIQuestions([]);
 
   const roomQuestions: RoomQuestion[] = picked.map((q, idx) => ({
-    id: `dq_${q.id}_${Date.now()}`,
+    id: q.id.startsWith('dq_') || q.id.startsWith('ai_') ? q.id : `dq_${q.id}_${Date.now()}`,
     questionId: q.id,
     text: q.text,
     category: q.category,
     type: q.type,
-    difficulty: q.difficulty,
+    difficulty: q.difficulty || 'Medium',
     options: q.options,
     unlockTime: getScheduledUnlockTime(idx),
   }));
@@ -606,23 +676,32 @@ app.get('/api/rooms/:roomCode', async (req, res) => {
       }
     }
 
-    const usedSet = new Set<string>(room.usedQuestionIds || []);
-    const picked = getNonRepeatingQuestions(usedSet, 5);
+    const pastQuestionTexts: string[] = [];
+    if (room.dailySession && room.dailySession.questions) {
+      room.dailySession.questions.forEach(q => pastQuestionTexts.push(q.text));
+    }
+    if (room.memories) {
+      room.memories.forEach((m: any) => {
+        if (m.questionText) pastQuestionTexts.push(m.questionText);
+      });
+    }
+
+    const picked = await generateAIQuestions(pastQuestionTexts);
     const todayDate = new Date();
 
     const roomQuestions: RoomQuestion[] = picked.map((q, idx) => ({
-      id: `dq_${q.id}_${Date.now()}`,
+      id: q.id.startsWith('dq_') || q.id.startsWith('ai_') ? q.id : `dq_${q.id}_${Date.now()}`,
       questionId: q.id,
       text: q.text,
       category: q.category,
       type: q.type,
-      difficulty: q.difficulty,
+      difficulty: q.difficulty || 'Medium',
       options: q.options,
       unlockTime: getScheduledUnlockTime(idx, todayDate),
     }));
 
     room.currentDate = todayStr;
-    room.usedQuestionIds = Array.from(usedSet);
+    room.usedQuestionIds = Array.from(new Set([...(room.usedQuestionIds || []), ...picked.map(q => q.id)]));
     room.dailySession = {
       id: `sess_${todayStr}`,
       date: todayStr,
@@ -875,33 +954,10 @@ app.post('/api/ai/monthly-story', async (req, res) => {
 });
 
 app.post('/api/ai/custom-questions', async (req, res) => {
-  const { pastQuestions } = req.body;
-  const apiKey = process.env.GROQ_API_KEY;
-  const isKeyMissing = !apiKey || apiKey === 'YOUR_GROQ_API_KEY' || apiKey.trim() === '';
-
-  if (isKeyMissing) {
-    const mockQuestions = [
-      { id: 'dyn_1', text: 'What is a song that instantly reminds you of me, and what memory is tied to it?', category: 'Emotional', type: 'self', difficulty: 'Medium' },
-      { id: 'dyn_2', text: 'If we were forced to live in a fantasy world, what roles would we take in our adventuring party?', category: 'Fun', type: 'self', difficulty: 'Easy' },
-      { id: 'dyn_3', text: 'What is my absolute favorite comfort food when I am feeling down or stressed?', category: 'Future', type: 'prediction', difficulty: 'Medium' },
-      { id: 'dyn_4', text: 'If our friendship was a movie, what would the title be and who would play us?', category: 'Friendship', type: 'self', difficulty: 'Medium' },
-      { id: 'dyn_5', text: 'What is a quiet dream you have for us that you have never spoken aloud?', category: 'Deep Thinking', type: 'self', difficulty: 'Deep' }
-    ];
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    return res.json({ questions: mockQuestions });
-  }
-
+  const { pastQuestions } = req.body; // array of question texts or IDs
   try {
-    const pastDetails = pastQuestions ? pastQuestions.join(', ') : 'None';
-    const prompt = `
-      You are Bondly's question-generation engine. Past questions: ${pastDetails}.
-      Generate 5 unique and engaging daily questions. Include categories: Friendship, Fun, Emotional, Deep Thinking, Future.
-      Include at least one prediction question.
-    `;
-
-    const schemaDesc = `{ questions: Array<{ id: string, text: string, category: string (one of: Friendship, Fun, Emotional, Deep Thinking, Future, Random), type: string (one of: self, prediction, rapid_fire), difficulty: string (one of: Easy, Medium, Deep) }> }`;
-    const data = await callGroqAPI(prompt, schemaDesc);
-    return res.json(data);
+    const questions = await generateAIQuestions(pastQuestions || []);
+    return res.json({ questions });
   } catch (error) {
     console.error('Groq custom questions error:', error);
     res.status(500).json({ error: 'Failed to generate custom questions' });

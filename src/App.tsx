@@ -219,38 +219,66 @@ export default function App() {
       if (sessionObj) {
         setDailySession(sessionObj);
       } else {
-        const hours = [8, 12, 16, 20, 22];
-        const d = new Date();
-        const year = d.getFullYear();
-        const month = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
+        const loadInitialSession = async () => {
+          const hours = [8, 12, 16, 20, 22];
+          const d = new Date();
+          const year = d.getFullYear();
+          const month = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
 
-        const sessionQs: DailyQuestion[] = DEFAULT_QUESTIONS.slice(0, 5).map((q, idx) => {
-          const selectedHour = hours[idx] !== undefined ? hours[idx] : 8 + idx * 3;
-          const hourStr = String(selectedHour).padStart(2, '0');
-          const unlockTimeStr = `${year}-${month}-${day}T${hourStr}:00:00`;
-          return {
-            id: `dq_${q.id}`,
-            questionId: q.id,
-            text: q.text,
-            category: q.category,
-            type: q.type,
-            difficulty: q.difficulty,
-            answeredByUser: false,
-            answeredByPartner: false,
-            userAnswer: '',
-            partnerAnswer: '',
-            unlockTime: unlockTimeStr
+          const pastQuestions: string[] = [];
+          loadedMemories.forEach((m: any) => {
+            if (m.questionText) pastQuestions.push(m.questionText);
+          });
+
+          let pickedQuestions = DEFAULT_QUESTIONS.slice(0, 5);
+
+          try {
+            const res = await fetch(getApiUrl('/api/ai/custom-questions'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ pastQuestions })
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data && Array.isArray(data.questions) && data.questions.length === 5) {
+                pickedQuestions = data.questions;
+              }
+            }
+          } catch (e) {
+            console.warn('Failed to fetch AI questions, falling back to static questions:', e);
+          }
+
+          const sessionQs: DailyQuestion[] = pickedQuestions.map((q, idx) => {
+            const selectedHour = hours[idx] !== undefined ? hours[idx] : 8 + idx * 3;
+            const hourStr = String(selectedHour).padStart(2, '0');
+            const unlockTimeStr = `${year}-${month}-${day}T${hourStr}:00:00`;
+            return {
+              id: q.id.startsWith('dq_') || q.id.startsWith('ai_') ? q.id : `dq_${q.id}`,
+              questionId: q.id,
+              text: q.text,
+              category: q.category,
+              type: q.type,
+              difficulty: q.difficulty || 'Medium',
+              answeredByUser: false,
+              answeredByPartner: false,
+              userAnswer: '',
+              partnerAnswer: '',
+              unlockTime: unlockTimeStr,
+              options: q.options
+            };
+          });
+
+          const newSession: DailySession = {
+            id: `sess_${todayStr}`,
+            date: todayStr,
+            questions: sessionQs,
           };
-        });
-
-        const newSession: DailySession = {
-          id: `sess_${todayStr}`,
-          date: todayStr,
-          questions: sessionQs,
+          setDailySession(newSession);
+          localStorage.setItem('bondly_daily_session', JSON.stringify(newSession));
         };
-        setDailySession(newSession);
-        localStorage.setItem('bondly_daily_session', JSON.stringify(newSession));
+
+        loadInitialSession();
       }
 
       if (storedTimeline) {
