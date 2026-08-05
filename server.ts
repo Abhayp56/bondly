@@ -569,7 +569,7 @@ app.post('/api/rooms/create', async (req, res) => {
     user1: updatedProfile,
     user2: null,
     currentDate: todayStr,
-    usedQuestionIds: Array.from(usedSet),
+    usedQuestionIds: picked.map(q => q.id),
     dailySession: {
       id: `sess_${todayStr}`,
       date: todayStr,
