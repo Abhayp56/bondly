@@ -118,6 +118,7 @@ interface ServerRoom {
   };
   memories: any[];
   timeline: any[];
+  bingoState?: any;
   lastUpdated: number;
 }
 
@@ -383,6 +384,7 @@ function formatRoomForSlot(room: ServerRoom, slot: 'user1' | 'user2') {
     },
     memories: room.memories,
     timeline: room.timeline,
+    bingoState: room.bingoState || null,
     lastUpdated: room.lastUpdated
   };
 }
@@ -897,6 +899,259 @@ app.post('/api/rooms/:roomCode/summary', async (req, res) => {
   room.lastUpdated = Date.now();
   await persistRoom(room);
 
+  return res.json({ roomState: formatRoomForSlot(room, slot) });
+});
+
+// -------------------------------------------------------------
+// BINGO MULTIPLAYER ROUTING & LOGIC
+// -------------------------------------------------------------
+
+const BINGO_WINNING_LINES = [
+  // Rows
+  [0, 1, 2, 3, 4],
+  [5, 6, 7, 8, 9],
+  [10, 11, 12, 13, 14],
+  [15, 16, 17, 18, 19],
+  [20, 21, 22, 23, 24],
+  // Columns
+  [0, 5, 10, 15, 20],
+  [1, 6, 11, 16, 21],
+  [2, 7, 12, 17, 22],
+  [3, 8, 13, 18, 23],
+  [4, 9, 14, 19, 24],
+  // Diagonals
+  [0, 6, 12, 18, 24],
+  [4, 8, 12, 16, 20]
+];
+
+function checkBingoLines(board: string[], markedItems: string[]): number[] {
+  if (!board || !markedItems) return [];
+  const markedSet = new Set(markedItems.map(item => item.trim().toLowerCase()));
+  const completedIndices: number[] = [];
+
+  BINGO_WINNING_LINES.forEach((line, index) => {
+    const isCompleted = line.every(cellIdx => {
+      const val = board[cellIdx];
+      return val && markedSet.has(val.trim().toLowerCase());
+    });
+    if (isCompleted) {
+      completedIndices.push(index);
+    }
+  });
+
+  return completedIndices;
+}
+
+function calculateScore(completedCount: number): number {
+  let score = 0;
+  if (completedCount >= 1) score += 50; // 1st line
+  if (completedCount >= 2) score += 50; // 2nd line
+  if (completedCount >= 3) score += 75; // 3rd line
+  if (completedCount >= 4) score += 75; // 4th line
+  if (completedCount >= 5) score += 200; // Full house / 5+ lines
+  return score;
+}
+
+const DEFAULT_BINGO_KEYWORDS = [
+  "Pizza 🍕", "Long Walks 🚶", "Tea/Coffee ☕", "Netflix Binge 📺",
+  "Late Night Chats 💬", "Inside Joke 🤫", "Road Trip 🚗", "Beach Day 🏖️",
+  "Cooking Disasters 🍳", "Goa Trip 🌴", "Memes Sent 📱", "Rainy Days 🌧️",
+  "Shopping Spree 🛍️", "Sleeping In 😴", "Deep Fears 👻", "Big Dreams 🌟",
+  "First Impression 🤝", "Gaming Nights 🎮", "Comfort Food 🍔", "Music Playlists 🎵",
+  "Future Plans 🏡", "Funny Faces 😜", "Gym Partner 🏋️", "Ice Cream 🍦", "Star Gazing ✨"
+];
+
+async function generateBingoKeywords(room: ServerRoom): Promise<string[]> {
+  const apiKey = process.env.GROQ_API_KEY;
+  const isKeyMissing = !apiKey || apiKey === 'YOUR_GROQ_API_KEY' || apiKey.trim() === '';
+
+  const memoriesList = room.memories || [];
+  const memoryTexts = memoriesList.map((m: any) => {
+    return `Question: ${m.questionText}. Answers: ${m.userAnswer}, ${m.partnerAnswer}`;
+  }).join(' | ');
+
+  if (isKeyMissing || memoriesList.length === 0) {
+    return [...DEFAULT_BINGO_KEYWORDS].sort(() => Math.random() - 0.5);
+  }
+
+  try {
+    const prompt = `
+      We are playing a friendship/relationship BINGO game called Bondly BINGO.
+      Generate exactly 25 unique, short, and highly relatable friendship/relationship keywords or memories (1-3 words max, each must contain a single matching emoji, e.g. "Pizza 🍕" or "Rainy Days 🌧️" or "Inside Joke 🤫").
+      Base these keywords on the following shared memories/answers between the two partners:
+      "${memoryTexts.substring(0, 1000)}"
+
+      If there are not enough specific memories, fill in the rest using typical fun, warm, and exciting friendship concepts (e.g. food, travel, inside jokes, hobbies).
+      Generate the response matching the specified JSON schema.
+    `;
+
+    const schemaDesc = `{
+      keywords: Array<string> (exactly 25 items, each 1-3 words with an emoji)
+    }`;
+
+    const data = await callGroqAPI(prompt, schemaDesc);
+    if (data && Array.isArray(data.keywords) && data.keywords.length === 25) {
+      return data.keywords;
+    }
+    throw new Error("Invalid array size from AI");
+  } catch (e) {
+    console.warn("AI Bingo keyword generation failed, using defaults:", e);
+    const customList = new Set<string>();
+    memoriesList.forEach((m: any) => {
+      if (m.questionText && m.questionText.length < 50) {
+        const cleaned = m.questionText.replace(/[?.,!]/g, "").substring(0, 15);
+        customList.add(cleaned);
+      }
+    });
+
+    const merged = Array.from(customList).map(text => `${text} ✨`);
+    DEFAULT_BINGO_KEYWORDS.forEach(kw => {
+      if (merged.length < 25) {
+        merged.push(kw);
+      }
+    });
+    return merged.sort(() => Math.random() - 0.5);
+  }
+}
+
+// API: Start BINGO Game
+app.post('/api/rooms/:roomCode/bingo/start', async (req, res) => {
+  const cleanCode = req.params.roomCode.trim().toUpperCase();
+  const slot = req.body.slot || 'user1';
+  const room = await fetchRoom(cleanCode);
+  if (!room) {
+    return res.status(404).json({ error: 'Room not found' });
+  }
+
+  const keywords = await generateBingoKeywords(room);
+
+  const boardUser1 = [...keywords].sort(() => Math.random() - 0.5);
+  const boardUser2 = [...keywords].sort(() => Math.random() - 0.5);
+
+  room.bingoState = {
+    gameActive: true,
+    currentTurn: Math.random() < 0.5 ? 'user1' : 'user2',
+    boardUser1,
+    boardUser2,
+    markedItems: [],
+    completedLinesUser1: [],
+    completedLinesUser2: [],
+    scores: {
+      user1: 0,
+      user2: 0
+    },
+    winner: null,
+    lastActionDesc: 'A new AI BINGO match has started!'
+  };
+
+  room.lastUpdated = Date.now();
+  await persistRoom(room);
+  return res.json({ roomState: formatRoomForSlot(room, slot) });
+});
+
+// API: Call a BINGO memory
+app.post('/api/rooms/:roomCode/bingo/call', async (req, res) => {
+  const cleanCode = req.params.roomCode.trim().toUpperCase();
+  const { slot, item } = req.body;
+  const room = await fetchRoom(cleanCode);
+  if (!room) {
+    return res.status(404).json({ error: 'Room not found' });
+  }
+
+  const state = room.bingoState;
+  if (!state || !state.gameActive) {
+    return res.status(400).json({ error: 'No active BINGO game' });
+  }
+
+  if (state.currentTurn !== slot) {
+    return res.status(400).json({ error: 'Not your turn' });
+  }
+
+  if (state.winner) {
+    return res.status(400).json({ error: 'Game already finished' });
+  }
+
+  const callerName = slot === 'user1' ? (room.user1?.name || 'User 1') : (room.user2?.name || 'User 2');
+
+  if (!state.markedItems.includes(item)) {
+    state.markedItems.push(item);
+  }
+
+  state.lastActionDesc = `${callerName} called "${item}"!`;
+
+  state.completedLinesUser1 = checkBingoLines(state.boardUser1, state.markedItems);
+  state.completedLinesUser2 = checkBingoLines(state.boardUser2, state.markedItems);
+
+  state.scores.user1 = calculateScore(state.completedLinesUser1.length);
+  state.scores.user2 = calculateScore(state.completedLinesUser2.length);
+
+  const allMarked = state.markedItems.length >= 25;
+  const user1Win = state.completedLinesUser1.length >= 5;
+  const user2Win = state.completedLinesUser2.length >= 5;
+
+  if (user1Win && user2Win) {
+    state.winner = 'draw';
+    state.gameActive = false;
+    state.lastActionDesc = `It's a draw! Both players hit 5 completed lines.`;
+  } else if (user1Win) {
+    state.winner = 'user1';
+    state.gameActive = false;
+    state.lastActionDesc = `${room.user1?.name || 'User 1'} hit BINGO! 🎉`;
+  } else if (user2Win) {
+    state.winner = 'user2';
+    state.gameActive = false;
+    state.lastActionDesc = `${room.user2?.name || 'User 2'} hit BINGO! 🎉`;
+  } else if (allMarked) {
+    if (state.completedLinesUser1.length > state.completedLinesUser2.length) {
+      state.winner = 'user1';
+    } else if (state.completedLinesUser2.length > state.completedLinesUser1.length) {
+      state.winner = 'user2';
+    } else {
+      state.winner = 'draw';
+    }
+    state.gameActive = false;
+    state.lastActionDesc = `Board cleared! Winner: ${state.winner === 'draw' ? 'Draw' : (state.winner === 'user1' ? room.user1?.name : room.user2?.name)}`;
+  }
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  if (state.winner && state.winner !== 'draw') {
+    const winnerProfile = state.winner === 'user1' ? room.user1 : room.user2;
+    const loserProfile = state.winner === 'user1' ? room.user2 : room.user1;
+    
+    // Reward XP/streak milestones on win
+    if (winnerProfile) {
+      winnerProfile.streakCount = (winnerProfile.streakCount || 0) + 1;
+    }
+    
+    room.timeline.unshift({
+      id: `evt_bingo_win_${Date.now()}`,
+      title: 'BINGO Champion! 🏆',
+      description: `${winnerProfile?.name || 'Winner'} won AI Friendship BINGO against ${loserProfile?.name || 'Partner'}!`,
+      date: todayStr,
+      type: 'milestone',
+      icon: '🏆'
+    });
+  }
+
+  state.currentTurn = slot === 'user1' ? 'user2' : 'user1';
+
+  room.lastUpdated = Date.now();
+  await persistRoom(room);
+  return res.json({ roomState: formatRoomForSlot(room, slot) });
+});
+
+// API: Reset BINGO Game
+app.post('/api/rooms/:roomCode/bingo/reset', async (req, res) => {
+  const cleanCode = req.params.roomCode.trim().toUpperCase();
+  const slot = req.body.slot || 'user1';
+  const room = await fetchRoom(cleanCode);
+  if (!room) {
+    return res.status(404).json({ error: 'Room not found' });
+  }
+
+  room.bingoState = null;
+  room.lastUpdated = Date.now();
+  await persistRoom(room);
   return res.json({ roomState: formatRoomForSlot(room, slot) });
 });
 

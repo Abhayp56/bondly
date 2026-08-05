@@ -25,6 +25,7 @@ export default function App() {
   const [memories, setMemories] = useState<Memory[]>([]);
   const [timelineEvents, setTimelineEvents] = useState<FriendshipTimelineEvent[]>([]);
   const [achievements, setAchievements] = useState<Achievement[]>([]);
+  const [bingoState, setBingoState] = useState<BingoState | null>(null);
   
   const [activeTab, setActiveTab] = useState<'home' | 'questions' | 'checker' | 'insights' | 'games' | 'profile'>('home');
   const [notifications, setNotifications] = useState<string[]>([]);
@@ -321,6 +322,9 @@ export default function App() {
               setTimelineEvents(data.roomState.timeline);
               localStorage.setItem('bondly_timeline', JSON.stringify(data.roomState.timeline));
             }
+            if (data.roomState.bingoState !== undefined) {
+              setBingoState(data.roomState.bingoState);
+            }
             if (data.roomState.profile) {
               const serverProfile = data.roomState.profile;
               if (
@@ -476,6 +480,9 @@ export default function App() {
     if (roomState && roomState.memories) {
       setMemories(roomState.memories);
       localStorage.setItem('bondly_memories', JSON.stringify(roomState.memories));
+    }
+    if (roomState && roomState.bingoState !== undefined) {
+      setBingoState(roomState.bingoState);
     }
     
     setNotifications([
@@ -720,7 +727,11 @@ export default function App() {
                 )}
 
                 {activeTab === 'games' && (
-                  <MiniGamesView />
+                  <MiniGamesView
+                    profile={profile}
+                    bingoState={bingoState}
+                    onUpdateBingoState={setBingoState}
+                  />
                 )}
 
                 {activeTab === 'profile' && (

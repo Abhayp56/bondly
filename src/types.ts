@@ -14,6 +14,22 @@ export interface Profile {
   slot?: 'user1' | 'user2';
 }
 
+export interface BingoState {
+  gameActive: boolean;
+  currentTurn: 'user1' | 'user2' | null;
+  boardUser1: string[];
+  boardUser2: string[];
+  markedItems: string[];
+  completedLinesUser1: number[];
+  completedLinesUser2: number[];
+  scores: {
+    user1: number;
+    user2: number;
+  };
+  winner: 'user1' | 'user2' | 'draw' | null;
+  lastActionDesc?: string;
+}
+
 export interface RoomState {
   roomCode: string;
   user1: Profile | null;
@@ -21,6 +37,7 @@ export interface RoomState {
   dailySession: DailySession;
   memories: Memory[];
   timeline: FriendshipTimelineEvent[];
+  bingoState?: BingoState | null;
   lastUpdated: number;
 }
 
