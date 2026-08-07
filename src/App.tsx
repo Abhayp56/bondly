@@ -221,7 +221,18 @@ export default function App() {
         setDailySession(sessionObj);
       } else {
         const loadInitialSession = async () => {
-          const hours = [8, 12, 16, 20, 22];
+          const schedules = [
+            { h: 7, m: 0 },
+            { h: 9, m: 0 },
+            { h: 11, m: 0 },
+            { h: 13, m: 0 },
+            { h: 15, m: 0 },
+            { h: 17, m: 0 },
+            { h: 19, m: 0 },
+            { h: 20, m: 30 },
+            { h: 22, m: 0 },
+            { h: 23, m: 0 }
+          ];
           const d = new Date();
           const year = d.getFullYear();
           const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -232,7 +243,7 @@ export default function App() {
             if (m.questionText) pastQuestions.push(m.questionText);
           });
 
-          let pickedQuestions = DEFAULT_QUESTIONS.slice(0, 5);
+          let pickedQuestions = DEFAULT_QUESTIONS.slice(0, 10);
 
           try {
             const res = await fetch(getApiUrl('/api/ai/custom-questions'), {
@@ -242,7 +253,7 @@ export default function App() {
             });
             if (res.ok) {
               const data = await res.json();
-              if (data && Array.isArray(data.questions) && data.questions.length === 5) {
+              if (data && Array.isArray(data.questions) && data.questions.length === 10) {
                 pickedQuestions = data.questions;
               }
             }
@@ -251,9 +262,10 @@ export default function App() {
           }
 
           const sessionQs: DailyQuestion[] = pickedQuestions.map((q, idx) => {
-            const selectedHour = hours[idx] !== undefined ? hours[idx] : 8 + idx * 3;
-            const hourStr = String(selectedHour).padStart(2, '0');
-            const unlockTimeStr = `${year}-${month}-${day}T${hourStr}:00:00`;
+            const time = schedules[idx] || { h: 8 + idx, m: 0 };
+            const hourStr = String(time.h).padStart(2, '0');
+            const minStr = String(time.m).padStart(2, '0');
+            const unlockTimeStr = `${year}-${month}-${day}T${hourStr}:${minStr}:00`;
             return {
               id: q.id.startsWith('dq_') || q.id.startsWith('ai_') ? q.id : `dq_${q.id}`,
               questionId: q.id,
@@ -621,7 +633,7 @@ export default function App() {
                           🔍
                         </div>
                         <div>
-                          <div className="text-xl font-black text-vcharcoal font-display">{completedCount}/5</div>
+                          <div className="text-xl font-black text-vcharcoal font-display">{completedCount}/10</div>
                           <div className="text-[11px] font-bold text-vgray">Answer Checker</div>
                         </div>
                       </div>
@@ -658,7 +670,7 @@ export default function App() {
                           </div>
                           <div>
                             <h4 className="text-xs font-bold text-vcharcoal font-display">Daily Answer Checker</h4>
-                            <p className="text-[10px] text-vgray">Reveals all 5 answers once both finish</p>
+                            <p className="text-[10px] text-vgray">Reveals all 10 answers once both finish</p>
                           </div>
                         </div>
                         <span className="text-xs text-vcoral font-bold">Open →</span>

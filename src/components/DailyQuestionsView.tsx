@@ -1,12 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Lock, Sparkles, CheckCircle2, ChevronRight, HelpCircle, 
-  RefreshCw, Award, ArrowRight, Heart, Flame, ShieldAlert, Zap, Clock
+  RefreshCw, Award, ArrowRight, Heart, Flame, ShieldAlert, Zap, Clock,
+  Mic, Trash2, Play, Pause, Volume2
 } from 'lucide-react';
 import { Profile, DailyQuestion, DailySession, Memory } from '../types';
 import confetti from 'canvas-confetti';
 import { getApiUrl } from '../config';
+import { supabase } from '../lib/supabaseClient';
 
 interface DailyQuestionsProps {
   profile: Profile;
@@ -15,11 +17,16 @@ interface DailyQuestionsProps {
 }
 
 const SCHEDULE_LABELS = [
-  'Morning (8:00 AM) ☀️',
-  'Afternoon (12:00 PM) 🌤️',
-  'Evening (4:00 PM) 🌅',
-  'Night (8:00 PM) 🌙',
-  'Late Night (10:00 PM) 🌌'
+  'Morning Kickoff (7:00 AM) 🌅',
+  'Daily Intention (9:00 AM) 🚗',
+  'Mid-Morning (11:00 AM) ☕',
+  'Lunch Time (1:00 PM) 🥪',
+  'Afternoon Slump (3:00 PM) ⚡',
+  'End of Workday (5:00 PM) 🌇',
+  'Dinner Vibes (7:00 PM) 🍽️',
+  'Evening Chill (8:30 PM) 🛋️',
+  'Night Reflection (10:00 PM) 🌙',
+  'Cozy Bedtime (11:00 PM) 🌌'
 ];
 
 export default function DailyQuestionsView({ 
@@ -37,7 +44,22 @@ export default function DailyQuestionsView({
   const [isFlipped, setIsFlipped] = useState(false);
   const [errMsg, setErrMsg] = useState('');
 
+  // Voice recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const [waveformLevels, setWaveformLevels] = useState<number[]>(new Array(15).fill(4));
+  const [isPlayingPreview, setIsPlayingPreview] = useState(false);
 
+  // Ranking state
+  const [rankedItems, setRankedItems] = useState<string[]>([]);
+
+  // Refs for voice recording
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const waveformIntervalRef = useRef<any>(null);
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Active Question
   const activeQuestion: DailyQuestion | undefined = dailySession?.questions[currentIndex];
@@ -51,8 +73,30 @@ export default function DailyQuestionsView({
       setShowReveal(bothDone);
       setIsFlipped(bothDone);
       setErrMsg('');
+
+      // Voice recorder preview clear
+      setIsPlayingPreview(false);
+      if (previewAudioRef.current) {
+        previewAudioRef.current.pause();
+        previewAudioRef.current = null;
+      }
+
+      // Ranking items initialize
+      if (activeQuestion.type === 'ranking') {
+        const initial = activeQuestion.userAnswer 
+          ? activeQuestion.userAnswer.split(',') 
+          : (activeQuestion.options || ['Pizza 🍕', 'Burger 🍔', 'Pasta 🍝', 'Biryani 🍛', 'Ice Cream 🍨']);
+        setRankedItems(initial);
+        if (!activeQuestion.answeredByUser) {
+          setUserAnswer(initial.join(','));
+        }
+      }
     }
-  }, [currentIndex]);
+
+    return () => {
+      if (waveformIntervalRef.current) clearInterval(waveformIntervalRef.current);
+    };
+  }, [currentIndex, activeQuestion?.id]);
 
   if (!dailySession || !activeQuestion) {
     return (
@@ -64,24 +108,143 @@ export default function DailyQuestionsView({
     );
   }
 
-  // Helper to reliably compute local scheduled unlock time for target slot hours (8 AM, 12 PM, 4 PM, 8 PM, 10 PM)
+  // Helper to reliably compute local scheduled unlock time for target slot hours
   const getQuestionUnlockDate = (qUnlockTime: string, idx: number): Date => {
-    const hours = [8, 12, 16, 20, 22];
-    const targetHour = hours[idx] !== undefined ? hours[idx] : 8 + idx * 3;
+    const schedules = [
+      { h: 7, m: 0 },
+      { h: 9, m: 0 },
+      { h: 11, m: 0 },
+      { h: 13, m: 0 },
+      { h: 15, m: 0 },
+      { h: 17, m: 0 },
+      { h: 19, m: 0 },
+      { h: 20, m: 30 },
+      { h: 22, m: 0 },
+      { h: 23, m: 0 }
+    ];
+    const time = schedules[idx] || { h: 8 + idx, m: 0 };
     const now = new Date();
 
     if (!qUnlockTime) {
-      return new Date(now.getFullYear(), now.getMonth(), now.getDate(), targetHour, 0, 0);
+      return new Date(now.getFullYear(), now.getMonth(), now.getDate(), time.h, time.m, 0);
     }
 
-    // If formatted ISO string without Z, JavaScript parses as local time
     if (!qUnlockTime.endsWith('Z') && qUnlockTime.includes('T')) {
       const parsed = new Date(qUnlockTime);
       if (!isNaN(parsed.getTime())) return parsed;
     }
 
-    // Fallback/Legacy UTC string normalization to local time today
-    return new Date(now.getFullYear(), now.getMonth(), now.getDate(), targetHour, 0, 0);
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate(), time.h, time.m, 0);
+  };
+
+  // Voice Recording Functions
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 64;
+      source.connect(analyser);
+
+      const bufferLength = analyser.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+      analyserRef.current = analyser;
+      audioContextRef.current = audioCtx;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const url = URL.createObjectURL(audioBlob);
+        setUserAnswer(url);
+        stream.getTracks().forEach(track => track.stop());
+        if (audioCtx.state !== 'closed') audioCtx.close();
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordSeconds(0);
+      setWaveformLevels(new Array(15).fill(4));
+
+      waveformIntervalRef.current = setInterval(() => {
+        if (analyserRef.current) {
+          analyserRef.current.getByteFrequencyData(dataArray);
+          const levels = Array.from(dataArray).slice(0, 15).map(val => Math.max(4, Math.round((val / 255) * 48)));
+          setWaveformLevels(levels);
+        }
+        setRecordSeconds(prev => {
+          if (prev >= 30) {
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+              mediaRecorderRef.current.stop();
+            }
+            setIsRecording(false);
+            if (waveformIntervalRef.current) clearInterval(waveformIntervalRef.current);
+            return 30;
+          }
+          return prev + 0.1;
+        });
+      }, 100);
+
+    } catch (err) {
+      console.warn("Microphone access denied:", err);
+      setErrMsg("Failed to access microphone. Please check app permissions.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+    if (waveformIntervalRef.current) clearInterval(waveformIntervalRef.current);
+  };
+
+  const deleteRecording = () => {
+    setUserAnswer('');
+    setIsPlayingPreview(false);
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause();
+      previewAudioRef.current = null;
+    }
+  };
+
+  const togglePreviewPlayback = () => {
+    if (!userAnswer) return;
+    if (isPlayingPreview) {
+      if (previewAudioRef.current) {
+        previewAudioRef.current.pause();
+      }
+      setIsPlayingPreview(false);
+    } else {
+      const audio = new Audio(userAnswer);
+      previewAudioRef.current = audio;
+      audio.play().catch(e => console.error(e));
+      setIsPlayingPreview(true);
+      audio.onended = () => {
+        setIsPlayingPreview(false);
+      };
+    }
+  };
+
+  // Ranking Swap Function
+  const moveRank = (index: number, direction: number) => {
+    const nextIdx = index + direction;
+    if (nextIdx < 0 || nextIdx >= rankedItems.length) return;
+    const newOrder = [...rankedItems];
+    const temp = newOrder[index];
+    newOrder[index] = newOrder[nextIdx];
+    newOrder[nextIdx] = temp;
+    setRankedItems(newOrder);
+    setUserAnswer(newOrder.join(','));
   };
 
   const unlockDate = getQuestionUnlockDate(activeQuestion.unlockTime, currentIndex);
@@ -98,8 +261,68 @@ export default function DailyQuestionsView({
     if (activeQuestion.type === 'prediction' && !userPrediction.trim()) return;
     if (activeQuestion.type !== 'prediction' && !userAnswer.trim()) return;
 
+    // Emoji-Only validation
+    if (activeQuestion.type === 'emoji_only') {
+      const clean = userAnswer.replace(/\s+/g, '');
+      const charCount = [...clean].length;
+      if (charCount === 0) {
+        setErrMsg('Please enter at least 1 emoji!');
+        return;
+      }
+      if (charCount > 10) {
+        setErrMsg('Maximum of 10 emojis allowed!');
+        return;
+      }
+      const containsText = /[a-zA-Z0-9]/g.test(userAnswer);
+      if (containsText) {
+        setErrMsg('Only emojis are allowed in this prompt!');
+        return;
+      }
+    }
+
     setIsSubmitting(true);
     setErrMsg('');
+
+    let finalAnswer = userAnswer;
+
+    // Handle voice upload
+    if (activeQuestion.type === 'voice' && userAnswer.startsWith('blob:')) {
+      try {
+        const response = await fetch(userAnswer);
+        const blob = await response.blob();
+        const fileName = `${profile.roomCode || 'local'}/${activeQuestion.id}_${profile.slot || 'user1'}_${Date.now()}.webm`;
+
+        if (supabase) {
+          const { error } = await supabase.storage
+            .from('audio_answers')
+            .upload(fileName, blob, { contentType: 'audio/webm' });
+
+          if (error) {
+            throw new Error(error.message);
+          }
+
+          const { data: { publicUrl } } = supabase.storage
+            .from('audio_answers')
+            .getPublicUrl(fileName);
+
+          finalAnswer = publicUrl;
+        } else {
+          // Local fallback base64
+          const base64 = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(blob);
+          });
+          finalAnswer = base64;
+        }
+      } catch (uploadErr: any) {
+        console.error('Audio upload failed:', uploadErr);
+        setErrMsg('Failed to upload voice memo. Please try again.');
+        setIsSubmitting(false);
+        return;
+      }
+    }
+
     try {
       if (profile.roomCode) {
         // Submit answer to real-time room backend
@@ -109,7 +332,7 @@ export default function DailyQuestionsView({
           body: JSON.stringify({
             slot: profile.slot || 'user1',
             questionIndex: currentIndex,
-            answer: userAnswer,
+            answer: finalAnswer,
             explanation: userExplanation,
             prediction: userPrediction
           })
@@ -137,7 +360,7 @@ export default function DailyQuestionsView({
           updatedQuestion.userPrediction = userPrediction;
           updatedQuestion.answeredByUser = true;
         } else {
-          updatedQuestion.userAnswer = userAnswer;
+          updatedQuestion.userAnswer = finalAnswer;
           updatedQuestion.userExplanation = userExplanation;
           updatedQuestion.answeredByUser = true;
         }
@@ -150,7 +373,7 @@ export default function DailyQuestionsView({
               questionText: activeQuestion.text,
               category: activeQuestion.category,
               type: activeQuestion.type,
-              userAnswer: userAnswer,
+              userAnswer: finalAnswer,
               partnerAnswer: 'Simulated AI Answer',
               userPrediction: userPrediction,
               partnerPrediction: ''
@@ -159,9 +382,14 @@ export default function DailyQuestionsView({
 
           if (response.ok) {
             const aiResult = await response.json();
-            let partnerAns = "I think we'd have a wonderful cottage in the quiet hills with a small reading nook.";
-            if (activeQuestion.category === 'Fun') partnerAns = "I would definitely try to lock us inside a huge store with infinite snacks!";
-            if (activeQuestion.category === 'Friendship') partnerAns = "Your empathy and ability to always listen without judgment.";
+            let partnerAns = "Here is my audio recording placeholder!";
+            if (activeQuestion.type === 'slider') partnerAns = "72";
+            else if (activeQuestion.type === 'ranking') partnerAns = rankedItems.slice().reverse().join(',');
+            else if (activeQuestion.type === 'reaction_meter') partnerAns = '😍 Love';
+            else if (activeQuestion.type === 'this_or_that' || activeQuestion.type === 'either_or') partnerAns = activeQuestion.options?.[0] || 'Coffee';
+            else if (activeQuestion.type === 'emoji_only') partnerAns = '😴☕️💻🚶‍♂️😴';
+            else if (activeQuestion.category === 'Fun') partnerAns = "I would definitely try to lock us inside a huge store with infinite snacks!";
+            else if (activeQuestion.category === 'Friendship') partnerAns = "Your empathy and ability to always listen without judgment.";
 
             updatedQuestion.partnerAnswer = partnerAns;
             updatedQuestion.answeredByPartner = true;
@@ -309,12 +537,12 @@ export default function DailyQuestionsView({
                   <div className="p-3.5 bg-white rounded-2xl border border-vsoft-border text-left space-y-1">
                     <span className="text-[10px] font-extrabold uppercase text-vcoral">Your Saved Response</span>
                     <p className="text-xs font-bold text-vcharcoal">
-                      "{activeQuestion.type === 'prediction' ? activeQuestion.userPrediction : activeQuestion.userAnswer}"
+                      {activeQuestion.type === 'voice' ? 'Voice response recorded 🎤' : `"${activeQuestion.type === 'prediction' ? activeQuestion.userPrediction : activeQuestion.userAnswer}"`}
                     </p>
                   </div>
                   <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200 text-[11px] font-bold text-amber-800 flex items-center justify-center space-x-1.5">
                     <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
-                    <span>Waiting for {profile.partnerName} to submit her response...</span>
+                    <span>Waiting for {profile.partnerName} to submit response...</span>
                   </div>
                 </div>
               ) : (
@@ -350,6 +578,243 @@ export default function DailyQuestionsView({
                             </button>
                           );
                         })}
+                      </div>
+                    </div>
+                  ) : activeQuestion.type === 'this_or_that' ? (
+                    <div className="space-y-2.5">
+                      <label className="block text-[11px] font-extrabold uppercase tracking-wider text-vgray mb-1">
+                        Select One (This or That):
+                      </label>
+                      <div className="grid grid-cols-2 gap-3 pt-1">
+                        {(activeQuestion.options || ['Coffee ☕', 'Tea 🍵']).map((option) => {
+                          const isSelected = userAnswer === option;
+                          return (
+                            <button
+                              key={option}
+                              type="button"
+                              onClick={() => setUserAnswer(option)}
+                              className={`py-3.5 px-4 rounded-full text-xs font-bold text-center border transition-all cursor-pointer ${
+                                isSelected
+                                  ? 'bg-rose-50 border-vcoral text-vcoral shadow-sm shadow-rose-500/10'
+                                  : 'bg-vsoft/30 border-vsoft-border text-vcharcoal hover:bg-white'
+                              }`}
+                            >
+                              {option}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : activeQuestion.type === 'either_or' ? (
+                    <div className="space-y-2.5">
+                      <label className="block text-[11px] font-extrabold uppercase tracking-wider text-vgray mb-1">
+                        Make Your Choice (Either / Or):
+                      </label>
+                      <div className="grid grid-cols-2 gap-3 pt-1">
+                        {(activeQuestion.options || ['Live in Space 🚀', 'Live Underwater 🧜']).map((option) => {
+                          const isSelected = userAnswer === option;
+                          return (
+                            <button
+                              key={option}
+                              type="button"
+                              onClick={() => setUserAnswer(option)}
+                              className={`aspect-[4/3] p-4 rounded-3xl text-xs font-extrabold flex flex-col items-center justify-center border transition-all cursor-pointer ${
+                                isSelected
+                                  ? 'bg-rose-50 border-vcoral text-vcoral scale-102 shadow-md shadow-rose-500/10'
+                                  : 'bg-vsoft/30 border-vsoft-border text-vcharcoal hover:bg-white'
+                              }`}
+                            >
+                              <span className="text-2xl mb-2">{option.split(' ').slice(1).join(' ') || '❓'}</span>
+                              <span className="text-[10px] text-center leading-tight">{option.split(' ')[0]}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : activeQuestion.type === 'slider' ? (
+                    <div className="space-y-2.5">
+                      <label className="block text-[11px] font-extrabold uppercase tracking-wider text-vgray mb-1">
+                        Rate Your Opinion:
+                      </label>
+                      <div className="p-4 bg-vsoft/40 border border-vsoft-border rounded-3xl space-y-3">
+                        <div className="flex justify-between items-center text-[10px] font-bold text-vgray">
+                          <span>0</span>
+                          <span className="text-xs text-vcoral bg-white px-3 py-1 rounded-full border border-vborder font-black">
+                            {userAnswer || '50'}
+                          </span>
+                          <span>100</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={userAnswer || '50'}
+                          onChange={(e) => setUserAnswer(e.target.value)}
+                          className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-vcoral"
+                        />
+                      </div>
+                    </div>
+                  ) : activeQuestion.type === 'reaction_meter' ? (
+                    <div className="space-y-2.5">
+                      <label className="block text-[11px] font-extrabold uppercase tracking-wider text-vgray mb-1">
+                        Choose Your Reaction:
+                      </label>
+                      <div className="grid grid-cols-5 gap-1.5 pt-1">
+                        {[
+                          { emoji: '😍', label: 'Love' },
+                          { emoji: '😊', label: 'Like' },
+                          { emoji: '😐', label: 'Neutral' },
+                          { emoji: '😖', label: 'Dislike' },
+                          { emoji: '😡', label: 'Hate' }
+                        ].map((reaction) => {
+                          const val = `${reaction.emoji} ${reaction.label}`;
+                          const isSelected = userAnswer === val;
+                          return (
+                            <button
+                              key={reaction.label}
+                              type="button"
+                              onClick={() => setUserAnswer(val)}
+                              className={`p-2 rounded-2xl flex flex-col items-center justify-center border transition-all cursor-pointer ${
+                                isSelected
+                                  ? 'bg-rose-50 border-vcoral text-vcoral scale-105 shadow-sm'
+                                  : 'bg-vsoft/30 border-vsoft-border text-vcharcoal hover:bg-white'
+                              }`}
+                            >
+                              <span className="text-xl">{reaction.emoji}</span>
+                              <span className="text-[8px] font-extrabold mt-1 text-vcharcoal leading-none truncate w-full">{reaction.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : activeQuestion.type === 'ranking' ? (
+                    <div className="space-y-2 pt-1">
+                      <label className="block text-[11px] font-extrabold uppercase tracking-wider text-vgray mb-1">
+                        Order the Items (use buttons to rank):
+                      </label>
+                      {rankedItems.map((item, idx) => (
+                        <div key={item} className="flex items-center justify-between p-3 bg-vsoft/30 border border-vsoft-border rounded-2xl text-xs font-bold text-vcharcoal">
+                          <div className="flex items-center space-x-3">
+                            <span className="w-5 h-5 rounded-full bg-vcoral text-white flex items-center justify-center text-[10px] font-black">
+                              {idx + 1}
+                            </span>
+                            <span className="truncate max-w-[150px]">{item}</span>
+                          </div>
+                          <div className="flex space-x-1">
+                            <button
+                              type="button"
+                              disabled={idx === 0}
+                              onClick={() => moveRank(idx, -1)}
+                              className="w-7 h-7 rounded-xl bg-white border border-vborder text-vcharcoal hover:bg-vsoft flex items-center justify-center cursor-pointer disabled:opacity-40 disabled:pointer-events-none"
+                            >
+                              ▲
+                            </button>
+                            <button
+                              type="button"
+                              disabled={idx === rankedItems.length - 1}
+                              onClick={() => moveRank(idx, 1)}
+                              className="w-7 h-7 rounded-xl bg-white border border-vborder text-vcharcoal hover:bg-vsoft flex items-center justify-center cursor-pointer disabled:opacity-40 disabled:pointer-events-none"
+                            >
+                              ▼
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : activeQuestion.type === 'emoji_only' ? (
+                    <div>
+                      <label className="block text-[11px] font-extrabold uppercase tracking-wider text-vgray mb-1.5">
+                        Your Answer (Emojis Only - Max 10)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={userAnswer}
+                          onChange={(e) => setUserAnswer(e.target.value)}
+                          className="w-full p-4 bg-vsoft/40 border border-vsoft-border rounded-2xl text-xl font-bold text-vcharcoal focus:outline-none focus:border-vcoral focus:bg-white transition-all text-center"
+                          placeholder="🔥❤️😍🍕🌟"
+                        />
+                        <span className="absolute right-3.5 bottom-3.5 text-[9px] font-bold text-vgray">
+                          {Array.from(userAnswer.replace(/\s+/g, '')).length} / 10
+                        </span>
+                      </div>
+                    </div>
+                  ) : activeQuestion.type === 'voice' ? (
+                    <div className="space-y-2.5 pt-1">
+                      <label className="block text-[11px] font-extrabold uppercase tracking-wider text-vgray">
+                        Record Your Bedtime Message (Max 30s):
+                      </label>
+                      
+                      <div className="p-5 bg-vsoft/30 border border-vsoft-border rounded-3xl flex flex-col items-center justify-center space-y-4">
+                        {isRecording ? (
+                          <div className="text-center space-y-2.5 w-full">
+                            <span className="text-xs text-rose-500 font-extrabold flex items-center justify-center space-x-1.5 animate-pulse">
+                              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
+                              <span>RECORDING {recordSeconds.toFixed(1)}s / 30.0s</span>
+                            </span>
+                            
+                            {/* Waveform graphic */}
+                            <div className="flex items-end justify-center space-x-1 h-12 py-1">
+                              {waveformLevels.map((val, idx) => (
+                                <div
+                                  key={idx}
+                                  className="w-1.5 bg-rose-500 rounded-full transition-all duration-75"
+                                  style={{ height: `${val}px` }}
+                                />
+                              ))}
+                            </div>
+                            
+                            <button
+                              type="button"
+                              onClick={stopRecording}
+                              className="px-6 py-2.5 bg-rose-600 text-white rounded-full text-xs font-bold shadow-md cursor-pointer hover:bg-rose-700 active:scale-95 transition-all mx-auto block"
+                            >
+                              Stop Recording
+                            </button>
+                          </div>
+                        ) : userAnswer ? (
+                          <div className="text-center space-y-3.5 w-full">
+                            <span className="text-[10px] font-extrabold text-emerald-600 uppercase tracking-wider block bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100 w-max mx-auto">
+                              ✓ Recording Completed
+                            </span>
+                            
+                            <div className="flex items-center justify-center space-x-3.5 pt-1">
+                              <button
+                                type="button"
+                                onClick={togglePreviewPlayback}
+                                className="w-11 h-11 bg-vcoral text-white rounded-full flex items-center justify-center shadow-md cursor-pointer hover:scale-105 active:scale-95 transition-all"
+                              >
+                                {isPlayingPreview ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-white ml-0.5" />}
+                              </button>
+                              
+                              <button
+                                type="button"
+                                onClick={deleteRecording}
+                                className="w-10 h-10 bg-white border border-vborder text-rose-500 rounded-full flex items-center justify-center shadow-sm cursor-pointer hover:bg-rose-50 hover:border-rose-200 active:scale-95 transition-all"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-center space-y-3.5">
+                            <div className="w-14 h-14 bg-white border border-vborder text-vcoral rounded-full flex items-center justify-center shadow-sm hover:scale-[1.02] active:scale-95 cursor-pointer transition-all mx-auto">
+                              <button
+                                type="button"
+                                onMouseDown={startRecording}
+                                onTouchStart={startRecording}
+                                onMouseUp={stopRecording}
+                                onTouchEnd={stopRecording}
+                                className="w-full h-full flex items-center justify-center cursor-pointer text-vcoral focus:outline-none"
+                              >
+                                <Mic className="w-6 h-6" />
+                              </button>
+                            </div>
+                            <span className="text-[10px] font-bold text-vgray uppercase tracking-widest block">
+                              Hold microphone to record
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ) : activeQuestion.type === 'prediction' ? (
@@ -425,7 +890,7 @@ export default function DailyQuestionsView({
                 </div>
                 <div className="p-3 bg-white rounded-2xl border border-emerald-200 text-[11px] font-semibold text-emerald-800 flex items-center justify-center space-x-1.5">
                   <Lock className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>Full side-by-side answers & AI scores unlock in the Answer Checker once all 5 prompts are completed.</span>
+                  <span>Full side-by-side answers & AI scores unlock in the Answer Checker once all 10 prompts are completed.</span>
                 </div>
               </div>
 
@@ -436,13 +901,13 @@ export default function DailyQuestionsView({
                     onClick={() => setCurrentIndex(currentIndex + 1)}
                     className="w-full py-3.5 bg-vcoral hover:bg-vcoral-hover text-white rounded-full font-bold text-xs uppercase tracking-wider flex items-center justify-center space-x-1.5 transition-all cursor-pointer shadow-md shadow-rose-500/20"
                   >
-                    <span>Next Prompt ({currentIndex + 2}/5)</span>
+                    <span>Next Prompt ({currentIndex + 2}/10)</span>
                     <ChevronRight className="w-4 h-4" />
                   </button>
                 ) : (
                   <div className="space-y-3 text-center">
                     <div className="p-4 bg-gradient-to-r from-vcoral to-vpink-start text-white rounded-2xl space-y-1 shadow-md">
-                      <span className="text-xs font-extrabold uppercase tracking-wider block">🎉 All 5 Daily Prompts Completed!</span>
+                      <span className="text-xs font-extrabold uppercase tracking-wider block">🎉 All 10 Daily Prompts Completed!</span>
                       <p className="text-[11px] text-white/90">Go to the Answer Checker tab to reveal all answers & compatibility scores!</p>
                     </div>
                   </div>

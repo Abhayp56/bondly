@@ -170,90 +170,47 @@ async function fetchRoom(roomCode: string): Promise<ServerRoom | null> {
 
 // Extended Pool of Unique Daily Questions across 6 Categories
 const QUESTION_POOL = [
-  // Friendship
-  { id: 'f1', text: 'What was your first impression of me when we first met, and how has it changed?', category: 'Friendship', type: 'self', difficulty: 'Easy' },
-  { id: 'f2', text: 'What is my greatest strength that I often underestimate in myself?', category: 'Friendship', type: 'prediction', difficulty: 'Medium' },
-  { id: 'f3', text: 'If we could start a business together tomorrow, what would we sell?', category: 'Friendship', type: 'self', difficulty: 'Easy' },
-  { id: 'f4', text: 'What is our funniest shared memory that never fails to make you laugh?', category: 'Friendship', type: 'self', difficulty: 'Easy' },
-  { id: 'f5', text: 'When was a moment you felt incredibly proud of our relationship?', category: 'Friendship', type: 'self', difficulty: 'Medium' },
-
-  // Fun
-  { id: 'u1', text: 'If a zombie apocalypse happened right now, who would survive longer, and what would be our plan?', category: 'Fun', type: 'self', difficulty: 'Easy' },
-  { id: 'u2', text: 'If I suddenly became famous overnight, what would be the reason, and what would change first?', category: 'Fun', type: 'prediction', difficulty: 'Medium' },
-  { id: 'u3', text: 'If we could travel back to any historical era for 24 hours, where are we going?', category: 'Fun', type: 'self', difficulty: 'Easy' },
-  { id: 'u4', text: 'Which weird habit of mine do you actually find endearing or secretively funny?', category: 'Fun', type: 'prediction', difficulty: 'Medium' },
-  { id: 'u5', text: 'If we both got granted one superpower, but they had to combine to be useful, what would they be?', category: 'Fun', type: 'self', difficulty: 'Medium' },
-
-  // Emotional
-  { id: 'e1', text: 'When you think about the happiest moment of your life so far, what is happening?', category: 'Emotional', type: 'self', difficulty: 'Deep' },
-  { id: 'e2', text: 'What is a small, quiet fear you carry that you rarely talk about with anyone else?', category: 'Emotional', type: 'self', difficulty: 'Deep' },
-  { id: 'e3', text: 'What is the most comforting thing I can say or do when you are having a rough day?', category: 'Emotional', type: 'prediction', difficulty: 'Medium' },
-  { id: 'e4', text: 'What gives you the most hope for our future over the next five years?', category: 'Emotional', type: 'self', difficulty: 'Deep' },
-  { id: 'e5', text: 'What was a moment in our relationship where you felt most emotionally understood?', category: 'Emotional', type: 'self', difficulty: 'Deep' },
-
-  // Deep Thinking
-  { id: 'd1', text: 'If time stopped globally today for everyone except us for 24 hours, how would we spend it?', category: 'Deep Thinking', type: 'self', difficulty: 'Deep' },
-  { id: 'd2', text: 'What is one value or principle that you would never sacrifice, no matter the cost?', category: 'Deep Thinking', type: 'self', difficulty: 'Deep' },
-  { id: 'd3', text: 'How do you personally define a successful and truly happy life?', category: 'Deep Thinking', type: 'self', difficulty: 'Deep' },
-  { id: 'd4', text: 'If you could know the absolute, objective truth to any single question, what would you ask?', category: 'Deep Thinking', type: 'self', difficulty: 'Deep' },
-
-  // Future
-  { id: 't1', text: 'Where is our absolute dream destination to travel together in the next three years?', category: 'Future', type: 'prediction', difficulty: 'Medium' },
-  { id: 't2', text: 'If we were to co-design our dream house, what is one non-negotiable feature it must have?', category: 'Future', type: 'self', difficulty: 'Medium' },
-  { id: 't3', text: 'What is a major bucket-list item we absolutely must cross off together?', category: 'Future', type: 'self', difficulty: 'Easy' },
-  { id: 't4', text: 'Where do you see us in ten years, and how has our friendship evolved?', category: 'Future', type: 'self', difficulty: 'Deep' },
-
-  // Multiple Choice Option Match Challenges
-  {
-    id: 'm1',
-    text: 'Where would we go on our ultimate surprise weekend getaway?',
-    category: 'Fun',
-    type: 'multiple_choice',
-    difficulty: 'Easy',
-    options: ['Cozy Mountain Cabin 🏔️', 'Sunny Beach Resort 🏖️', 'Bustling City Hotel 🏙️', 'Peaceful Forest Camping 🌲']
-  },
-  {
-    id: 'm2',
-    text: 'What is our absolute ideal Friday night activity together?',
-    category: 'Friendship',
-    type: 'multiple_choice',
-    difficulty: 'Easy',
-    options: ['Bingeing a show with snacks 🍿', 'Cooking a fancy dinner 🍝', 'Late night drive & deep chats 🚗', 'Board games or gaming 🎮']
-  },
-  {
-    id: 'm3',
-    text: 'If we suddenly won $10,000 today, what would we do first?',
-    category: 'Future',
-    type: 'multiple_choice',
-    difficulty: 'Medium',
-    options: ['Book a luxury trip abroad ✈️', 'Invest & save for the future 📈', 'Go on a massive shopping spree 🛍️', 'Upgrade our living space 🏡']
-  },
-  {
-    id: 'm4',
-    text: 'Which superhero duo role best describes us in a crisis?',
-    category: 'Fun',
-    type: 'multiple_choice',
-    difficulty: 'Easy',
-    options: ['The Master Strategist 🧠', 'The Hype Action Leader ⚡', 'The Calm Caretaker 🛡️', 'The Funny Specialist 🎭']
-  }
+  { id: 'tot1', text: 'Coffee vs Tea', category: 'Fun', type: 'this_or_that', difficulty: 'Easy', options: ['Coffee ☕', 'Tea 🍵'] },
+  { id: 'slf1', text: 'What is a small detail about my personality that you hope never changes?', category: 'Friendship', type: 'self', difficulty: 'Easy' },
+  { id: 'prd1', text: 'What is my absolute favorite way to destress after a chaotic day?', category: 'Emotional', type: 'prediction', difficulty: 'Medium' },
+  { id: 'mc1', text: 'What is our ultimate Friday night vibe?', category: 'Fun', type: 'multiple_choice', difficulty: 'Easy', options: ['Cozy movie binge 🍿', 'Cooking a fancy meal 🍝', 'Late night drive 🚗', 'Board game showdown 🎮'] },
+  { id: 'eo1', text: 'Live in Space vs Live Underwater', category: 'Fun', type: 'either_or', difficulty: 'Easy', options: ['Live in Space 🚀', 'Live Underwater 🧜'] },
+  { id: 'rm1', text: 'How do you react when someone cancels plans at the very last minute?', category: 'Emotional', type: 'reaction_meter', difficulty: 'Medium' },
+  { id: 'sld1', text: 'How high is your social battery right now?', category: 'Deep Thinking', type: 'slider', difficulty: 'Medium' },
+  { id: 'rnk1', text: 'Rank these dinner choices from favorite to least favorite:', category: 'Fun', type: 'ranking', difficulty: 'Easy', options: ['Pizza 🍕', 'Burger 🍔', 'Pasta 🍝', 'Biryani 🍛', 'Ice Cream 🍨'] },
+  { id: 'emo1', text: 'Describe today using only emojis (Max 10).', category: 'Fun', type: 'emoji_only', difficulty: 'Easy' },
+  { id: 'voc1', text: 'Record a voice answer sharing one thing you appreciate about our relationship today.', category: 'Deep Thinking', type: 'voice', difficulty: 'Deep' }
 ];
 
-// Calculate Scheduled Unlock Times (8 AM, 12 PM, 4 PM, 8 PM, 10 PM)
+// Calculate Scheduled Unlock Times
 function getScheduledUnlockTime(index: number, baseDate?: Date): string {
   const d = baseDate ? new Date(baseDate) : new Date();
-  const hours = [8, 12, 16, 20, 22]; // Morning (8 AM), Afternoon (12 PM), Evening (4 PM), Night (8 PM), Late Night (10 PM)
-  const selectedHour = hours[index] !== undefined ? hours[index] : 8 + index * 3;
+  const schedules = [
+    { h: 7, m: 0 },
+    { h: 9, m: 0 },
+    { h: 11, m: 0 },
+    { h: 13, m: 0 },
+    { h: 15, m: 0 },
+    { h: 17, m: 0 },
+    { h: 19, m: 0 },
+    { h: 20, m: 30 },
+    { h: 22, m: 0 },
+    { h: 23, m: 0 }
+  ];
+  
+  const time = schedules[index] !== undefined ? schedules[index] : { h: 8 + index, m: 0 };
 
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
-  const hourStr = String(selectedHour).padStart(2, '0');
+  const hourStr = String(time.h).padStart(2, '0');
+  const minStr = String(time.m).padStart(2, '0');
 
-  return `${year}-${month}-${day}T${hourStr}:00:00`;
+  return `${year}-${month}-${day}T${hourStr}:${minStr}:00`;
 }
 
-// Select 5 unique, non-repeating questions
-function getNonRepeatingQuestions(usedSet: Set<string>, count = 5): any[] {
+// Select unique, non-repeating questions (10 by default)
+function getNonRepeatingQuestions(usedSet: Set<string>, count = 10): any[] {
   let available = QUESTION_POOL.filter(q => !usedSet.has(q.id));
   if (available.length < count) {
     usedSet.clear();
@@ -266,21 +223,19 @@ function getNonRepeatingQuestions(usedSet: Set<string>, count = 5): any[] {
 }
 
 // Fallback to choose random static questions from the static pool
-function getRandomStaticQuestions(pastQuestionTexts: string[], count = 5): any[] {
+function getRandomStaticQuestions(pastQuestionTexts: string[], count = 10): any[] {
   const normalizedPast = (pastQuestionTexts || []).map(t => t.trim().toLowerCase());
   let available = QUESTION_POOL.filter(q => !normalizedPast.includes((q.text || '').trim().toLowerCase()));
   if (available.length < count) {
     available = [...QUESTION_POOL];
   }
-  const shuffled = [...available].sort(() => Math.random() - 0.5);
-  const selected = shuffled.slice(0, count);
-  return selected.map((q, idx) => ({
+  return available.slice(0, count).map((q, idx) => ({
     id: `dq_${q.id}_${Date.now()}_${idx}`,
     ...q
   }));
 }
 
-// Generates 5 unique daily questions via Groq API (llama-3.3-70b-versatile)
+// Generates 10 unique daily questions via Groq API (llama-3.3-70b-versatile)
 async function generateAIQuestions(pastQuestionTexts: string[] = []): Promise<any[]> {
   const apiKey = process.env.GROQ_API_KEY;
   const isKeyMissing = !apiKey || apiKey === 'YOUR_GROQ_API_KEY' || apiKey.trim() === '';
@@ -293,37 +248,45 @@ async function generateAIQuestions(pastQuestionTexts: string[] = []): Promise<an
   try {
     const prompt = `
       You are Bondly's question-generation engine.
-      Generate exactly 5 unique, engaging, and easy-to-understand daily questions for friends/partners.
+      Generate exactly 10 unique, highly engaging, and easy-to-understand daily questions for friends/partners.
       Do not repeat or overlap with these past questions:
       ${pastQuestionTexts.length > 0 ? pastQuestionTexts.map((q, i) => `${i+1}. ${q}`).join('\n') : 'None'}
 
-      Include questions in these categories:
-      - Friendship
-      - Fun
-      - Emotional
-      - Deep Thinking
-      - Future
+      CRITICAL SEMANTIC DIVERSIFICATION RULES:
+      - Every question must have a completely unique intention, theme, emotional tone, topic, and require a totally different thinking process.
+      - There must be zero overlap or similarity in intentions or thoughts across the 10 questions.
+      - If one question is about a daily routine, no other question can ask about daily habits.
+      - If one question touches on food/restaurants, no other question can cover culinary topics.
+      - If one question asks about memories/nostalgia, no other question can cover past events.
+      - If one question is analytical, make others lighthearted, emotional, futuristic, active, or goofy. Do not repeat any concepts, nouns, verbs, or semantic meanings across any of the 10 questions. None of them should feel similar in intention or meaning.
 
-      Make sure:
-      1. At least 1-2 questions are "multiple_choice" questions, containing an array of 4 options (strings with emoji illustrations).
-      2. At least 1 question is a "prediction" question where one partner predicts the other's answer.
-      3. The rest can be "self" questions (simple questions answered for oneself).
-      
-      Generate response matching the specified JSON schema.
+      You MUST generate exactly 10 questions in a JSON array. Follow this exact order of formats/types:
+      1. Index 0: type="this_or_that" (category="Fun" or "Friendship"). A fast choice. Text must be like "Coffee vs Tea" or "Cats vs Dogs". Include options=[item1, item2].
+      2. Index 1: type="self" (category="Friendship" or "Fun"). A reflective question answered for oneself.
+      3. Index 2: type="prediction" (category="Emotional" or "Friendship"). A question where one partner predicts the other's answer.
+      4. Index 3: type="multiple_choice" (category="Fun"). Include options=[option1, option2, option3, option4] (4 items with descriptive emojis).
+      5. Index 4: type="either_or" (category="Fun" or "Deep Thinking"). Two big choices. Text must be like "Live in Space or Live Underwater". Include options=[choice1, choice2].
+      6. Index 5: type="reaction_meter" (category="Fun" or "Emotional"). A prompt requesting a reaction. E.g., "When someone cancels plans at the last minute".
+      7. Index 6: type="slider" (category="Emotional" or "Deep Thinking"). An opinion rating question from 0 to 100. E.g., "How stressful was today?" or "How high is your battery today?".
+      8. Index 7: type="ranking" (category="Fun" or "Friendship"). Rank 5 items. Include options=[item1, item2, item3, item4, item5] (e.g. Pizza, Burger, etc.).
+      9. Index 8: type="emoji_only" (category="Fun" or "Emotional"). A prompt to describe something using only emojis. E.g., "Describe today using only emojis." or "Describe your mood using only emojis.".
+      10. Index 9: type="voice" (category="Deep Thinking" or "Emotional"). A deep bedtime question. E.g., "Record a voice answer sharing one thing you appreciate about our relationship today." or "Share a sweet memory you thought of today.".
+
+      Generate response matching the specified JSON schema. Do not include mock questions or placeholders.
     `;
 
     const schemaDesc = `{
       questions: Array<{
         text: string,
         category: string (Friendship, Fun, Emotional, Deep Thinking, Future),
-        type: string (self, prediction, multiple_choice),
+        type: string (this_or_that, self, prediction, multiple_choice, either_or, reaction_meter, slider, ranking, emoji_only, voice),
         difficulty: string (Easy, Medium, Deep),
-        options?: Array<string> (only if type is multiple_choice, exactly 4 options)
+        options?: Array<string>
       }>
     }`;
 
     const data = await callGroqAPI(prompt, schemaDesc);
-    if (data && Array.isArray(data.questions) && data.questions.length === 5) {
+    if (data && Array.isArray(data.questions) && data.questions.length === 10) {
       return data.questions.map((q: any, idx: number) => ({
         id: `ai_${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 5)}`,
         ...q
@@ -403,16 +366,66 @@ async function evaluateAnswersInternal(
   const isKeyMissing = !apiKey || apiKey === 'YOUR_GROQ_API_KEY' || apiKey.trim() === '';
 
   if (isKeyMissing) {
-    let score = 88;
-    let commentary = `You both shared deep and meaningful perspectives in the ${category} category!`;
+    let score = 85;
+    let commentary = `You both shared wonderful thoughts in the ${category} category!`;
 
-    if (type === 'multiple_choice') {
-      const isMatch = (userAnswer || '').trim() === (partnerAnswer || '').trim();
+    if (type === 'multiple_choice' || type === 'this_or_that' || type === 'either_or' || type === 'reaction_meter') {
+      const isMatch = (userAnswer || '').trim().toLowerCase() === (partnerAnswer || '').trim().toLowerCase();
       return {
         similarityScore: isMatch ? 100 : 60,
         aiCommentary: isMatch
-          ? `Perfect Choice Match! You both chose "${userAnswer}". Total alignment!`
+          ? `Perfect Choice Match! You both selected "${userAnswer}". Total alignment!`
           : `Choice Match: You selected "${userAnswer}" while your partner chose "${partnerAnswer}". Unique preferences make your bond interesting!`
+      };
+    }
+
+    if (type === 'slider') {
+      const val1 = parseInt(userAnswer, 10) || 0;
+      const val2 = parseInt(partnerAnswer, 10) || 0;
+      const diff = Math.abs(val1 - val2);
+      score = Math.max(0, 100 - diff);
+      if (diff <= 10) {
+        commentary = `Wow, you are almost in perfect sync with a difference of just ${diff} points on the scale (You: ${val1}, Partner: ${val2})!`;
+      } else {
+        commentary = `You rate this somewhat differently, with a difference of ${diff} points (You: ${val1}, Partner: ${val2}). Opposite views spark the best conversations!`;
+      }
+      return { similarityScore: score, aiCommentary: commentary };
+    }
+
+    if (type === 'ranking') {
+      try {
+        const r1 = (userAnswer || '').split(',').map(s => s.trim().toLowerCase());
+        const r2 = (partnerAnswer || '').split(',').map(s => s.trim().toLowerCase());
+        let rankScore = 0;
+        r1.forEach((item, idx) => {
+          const partnerIdx = r2.indexOf(item);
+          if (partnerIdx !== -1) {
+            const diff = Math.abs(idx - partnerIdx);
+            if (diff === 0) rankScore += 20;
+            else if (diff === 1) rankScore += 12;
+            else if (diff === 2) rankScore += 6;
+          }
+        });
+        score = Math.min(100, Math.max(50, rankScore));
+        commentary = `Rankings compared! You both ranked the items with a high degree of correlation (${score}% alignment). Check out where your lists overlap!`;
+      } catch (e) {
+        score = 80;
+        commentary = `Rankings submitted! Reviewing each other's list offers a wonderful window into your priorities.`;
+      }
+      return { similarityScore: score, aiCommentary: commentary };
+    }
+
+    if (type === 'emoji_only') {
+      return {
+        similarityScore: 90,
+        aiCommentary: `Both of you shared expressive emoji reflections ("${userAnswer}" & "${partnerAnswer}") detailing your daily energy!`
+      };
+    }
+
+    if (type === 'voice') {
+      return {
+        similarityScore: 95,
+        aiCommentary: `Cozy bedtime Voice Memo submitted! Listening to each other's voice notes builds a beautifully intimate connection.`
       };
     }
 
@@ -439,15 +452,21 @@ async function evaluateAnswersInternal(
   try {
     const prompt = `
       We are playing a friendship/relationship bonding game called Bondly.
-      Evaluate the similarity and connection between these two answers:
+      Evaluate the similarity, alignment, and emotional connection between these two answers:
       
       Question Text: "${questionText}"
       Category: "${category}"
-      Challenge Type: "${type}" (self means they answered for themselves, prediction means User predicted Partner's answer)
+      Challenge Type: "${type}"
       
-      ${type === 'prediction' ? `User 1's Prediction of User 2: "${userPrediction}"\nUser 2's Prediction of User 1: "${partnerPrediction}"` : `User 1 Answer: "${userAnswer}"\nUser 2 Answer: "${partnerAnswer}"`}
+      User 1 Answer: "${type === 'prediction' ? userPrediction : userAnswer}"
+      User 2 Answer: "${type === 'prediction' ? partnerPrediction : partnerAnswer}"
       
-      For prediction type: evaluate how closely they predicted each other's perspectives or how well their predictions show mutual understanding and appreciation.
+      For types like multiple_choice, this_or_that, either_or, and reaction_meter, note if they chose the same item.
+      For type="slider", note their numeric ratings (0-100) and comment on how close or far apart they are.
+      For type="ranking", evaluate how similar their ranked priorities are.
+      For type="emoji_only", interpret the meaning of both users' emoji strings and summarize their combined day or feelings.
+      For type="voice", they uploaded audio files (the values are URLs). Write a warm message celebrating their shared bedtime voices.
+      
       Calculate a similarity/accuracy percentage (an integer between 0 and 100).
       Write a warm, cozy, and highly personalized AI commentary (exactly 1-2 sentences) commenting on their answers.
       Tone: emotional, supportive, delight-driven. Use "you" and "your partner".
@@ -631,61 +650,48 @@ app.get('/api/rooms/:roomCode', async (req, res) => {
   let roomUpdated = false;
 
   if (room.currentDate !== todayStr) {
-    // Backup old daily session questions to memories before resetting dailySession
+    // Delete any voice recording audio files from the previous session to save Supabase Storage
     if (room.dailySession && room.dailySession.questions) {
-      for (const q of room.dailySession.questions) {
-        const user1Responded = q.type === 'prediction' ? !!q.user1Prediction : !!q.user1Answer;
-        const user2Responded = q.type === 'prediction' ? !!q.user2Prediction : !!q.user2Answer;
+      const voiceQuestions = room.dailySession.questions.filter(q => q.type === 'voice');
+      const pathsToDelete: string[] = [];
 
-        if (user1Responded || user2Responded) {
-          const alreadyArchived = room.memories.some(
-            m => m.questionText === q.text && m.date === room.dailySession.date
-          );
-          if (!alreadyArchived) {
-            let similarityScore = q.similarityScore;
-            let aiCommentary = q.aiCommentary;
-            if (!similarityScore) {
-              try {
-                const aiResult = await evaluateAnswersInternal(
-                  q.text,
-                  q.category,
-                  q.type,
-                  q.user1Answer || '',
-                  q.user2Answer || '',
-                  q.user1Prediction || '',
-                  q.user2Prediction || ''
-                );
-                similarityScore = aiResult.similarityScore;
-                aiCommentary = aiResult.aiCommentary;
-              } catch (e) {
-                similarityScore = 85;
-                aiCommentary = 'Shared wonderful thoughts reflecting your connection.';
-              }
-            }
+      const getStoragePathFromUrl = (url: string): string | null => {
+        if (!url) return null;
+        const marker = '/audio_answers/';
+        const idx = url.indexOf(marker);
+        if (idx !== -1) {
+          return url.substring(idx + marker.length);
+        }
+        return null;
+      };
 
-            room.memories.unshift({
-              id: `mem_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-              date: room.dailySession.date,
-              questionText: q.text,
-              category: q.category,
-              userAnswer: q.user1Answer || q.user1Prediction || '',
-              partnerAnswer: q.user2Answer || q.user2Prediction || '',
-              similarityScore,
-              aiCommentary,
-            });
+      voiceQuestions.forEach(q => {
+        const p1 = getStoragePathFromUrl(q.user1Answer);
+        const p2 = getStoragePathFromUrl(q.user2Answer);
+        if (p1) pathsToDelete.push(p1);
+        if (p2) pathsToDelete.push(p2);
+      });
+
+      if (supabase && pathsToDelete.length > 0) {
+        try {
+          const { error } = await supabase.storage.from('audio_answers').remove(pathsToDelete);
+          if (error) {
+            console.error('❌ Failed to delete old voice files from Supabase Storage:', error.message);
+          } else {
+            console.log('✅ Successfully deleted voice files from Supabase Storage:', pathsToDelete);
           }
+        } catch (err) {
+          console.error('⚠️ Error deleting old voice files:', err);
         }
       }
     }
 
+    // Completely drop Memory Vault (no archiving to room.memories)
+    room.memories = [];
+
     const pastQuestionTexts: string[] = [];
     if (room.dailySession && room.dailySession.questions) {
       room.dailySession.questions.forEach(q => pastQuestionTexts.push(q.text));
-    }
-    if (room.memories) {
-      room.memories.forEach((m: any) => {
-        if (m.questionText) pastQuestionTexts.push(m.questionText);
-      });
     }
 
     const picked = await generateAIQuestions(pastQuestionTexts);
