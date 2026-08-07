@@ -228,10 +228,10 @@ export default function App() {
             { h: 13, m: 0 },
             { h: 15, m: 0 },
             { h: 17, m: 0 },
-            { h: 19, m: 0 },
-            { h: 20, m: 30 },
-            { h: 22, m: 0 },
-            { h: 23, m: 0 }
+            { h: 18, m: 30 },
+            { h: 20, m: 0 },
+            { h: 21, m: 0 },
+            { h: 22, m: 0 }
           ];
           const d = new Date();
           const year = d.getFullYear();
