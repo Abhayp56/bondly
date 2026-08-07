@@ -599,7 +599,7 @@ export default function App() {
                           <span>{profile.streakCount} Day Streak</span>
                         </span>
                         <span className="text-[11px] bg-black/10 px-2.5 py-1 rounded-full font-bold">
-                          {completedCount}/5 Questions Done
+                          {completedCount}/10 Questions Done
                         </span>
                       </div>
 
@@ -608,7 +608,7 @@ export default function App() {
                           Daily Connection
                         </h2>
                         <p className="text-xs text-white/90 leading-relaxed font-medium">
-                          Answer today's 5 prompts together to unlock live similarity scores & AI insights!
+                          Answer today's 10 prompts together to unlock live similarity scores & AI insights!
                         </p>
                       </div>
 

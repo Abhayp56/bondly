@@ -23,10 +23,10 @@ const SCHEDULE_LABELS = [
   'Lunch Time (1:00 PM) 🥪',
   'Afternoon Slump (3:00 PM) ⚡',
   'End of Workday (5:00 PM) 🌇',
-  'Dinner Vibes (7:00 PM) 🍽️',
-  'Evening Chill (8:30 PM) 🛋️',
-  'Night Reflection (10:00 PM) 🌙',
-  'Cozy Bedtime (11:00 PM) 🌌'
+  'Dinner Vibes (6:30 PM) 🍽️',
+  'Evening Chill (8:00 PM) 🛋️',
+  'Night Reflection (9:00 PM) 🌙',
+  'Cozy Bedtime (10:00 PM) 🌌'
 ];
 
 export default function DailyQuestionsView({ 
