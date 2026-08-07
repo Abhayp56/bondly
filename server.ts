@@ -107,6 +107,7 @@ interface ServerRoom {
   user2: any | null;
   currentDate: string;
   usedQuestionIds: string[];
+  pastQuestionTexts?: string[];
   dailySession: {
     id: string;
     date: string;
@@ -235,7 +236,112 @@ function getRandomStaticQuestions(pastQuestionTexts: string[], count = 10): any[
   }));
 }
 
-// Generates 10 unique daily questions via Groq API (llama-3.3-70b-versatile)
+// Helper to check if a question is duplicate
+function isQuestionDuplicate(text: string, pastTexts: string[]): boolean {
+  if (!pastTexts || pastTexts.length === 0) return false;
+  const clean = (t: string) => t.trim().toLowerCase().replace(/[?.!,;:'"()\-]/g, '').replace(/\s+/g, ' ');
+  const cleanedText = clean(text);
+  return pastTexts.some(p => clean(p) === cleanedText);
+}
+
+// Helper to generate 3 alternative questions of a specific type
+async function generateAlternatives(
+  questionText: string,
+  type: string,
+  category: string,
+  pastQuestionTexts: string[]
+): Promise<any[]> {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey || apiKey === 'YOUR_GROQ_API_KEY' || apiKey.trim() === '') {
+    return [];
+  }
+
+  const prompt = `
+    You are Bondly's question-generation engine.
+    The daily question "${questionText}" of type "${type}" and category "${category}" was already asked previously in our history.
+    Generate exactly 3 alternative, highly engaging, and unique replacement questions of the SAME type ("${type}") and category ("${category}").
+    Do not repeat or overlap with these past questions:
+    ${pastQuestionTexts.length > 0 ? pastQuestionTexts.slice(-30).map((q, i) => `${i+1}. ${q}`).join('\n') : 'None'}
+
+    Generate response matching the specified JSON schema. Do not include mock questions or placeholders.
+  `;
+
+  const schemaDesc = `{
+    questions: Array<{
+      text: string,
+      category: string,
+      type: string,
+      difficulty: string,
+      options?: Array<string>
+    }>
+  }`;
+
+  try {
+    const data = await callGroqAPI(prompt, schemaDesc);
+    let questionsList: any[] = [];
+    if (data && Array.isArray(data.questions)) {
+      questionsList = data.questions;
+    } else if (data && typeof data === 'object') {
+      const firstArrayKey = Object.keys(data).find(k => Array.isArray((data as any)[k]));
+      if (firstArrayKey) {
+        questionsList = (data as any)[firstArrayKey];
+      }
+    }
+    return questionsList.filter(
+      q => q && typeof q === 'object' && typeof q.text === 'string' && q.text.trim() !== ''
+    );
+  } catch (e) {
+    console.error('❌ Failed to generate alternatives:', e);
+    return [];
+  }
+}
+
+// Helper to generate a single batch of daily questions with retry logic
+async function generateAIQuestionsBatch(
+  prompt: string,
+  schemaDesc: string,
+  expectedCount: number,
+  retries = 3
+): Promise<any[]> {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const data = await callGroqAPI(prompt, schemaDesc);
+      
+      let questionsList: any[] = [];
+      if (Array.isArray(data)) {
+        questionsList = data;
+      } else if (data && typeof data === 'object') {
+        const firstArrayKey = Object.keys(data).find(k => Array.isArray((data as any)[k]));
+        if (firstArrayKey) {
+          questionsList = (data as any)[firstArrayKey];
+        }
+      }
+      
+      // Filter out invalid items (each question must have text)
+      questionsList = questionsList.filter(
+        q => q && typeof q === 'object' && typeof q.text === 'string' && q.text.trim() !== ''
+      );
+      
+      if (questionsList.length > 0) {
+        if (questionsList.length > expectedCount) {
+          questionsList = questionsList.slice(0, expectedCount);
+        }
+        return questionsList;
+      }
+      throw new Error(`Batch returned no valid questions`);
+    } catch (error) {
+      console.warn(`⚠️ Attempt ${attempt} failed for AI question generation batch:`, error);
+      if (attempt === retries) {
+        throw error;
+      }
+      // Wait a short duration before retrying (exponential backoff / delay)
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
+  return [];
+}
+
+// Generates 10 unique daily questions via Groq API (llama-3.3-70b-versatile) by splitting into 2 parallel batches
 async function generateAIQuestions(pastQuestionTexts: string[] = []): Promise<any[]> {
   const apiKey = process.env.GROQ_API_KEY;
   const isKeyMissing = !apiKey || apiKey === 'YOUR_GROQ_API_KEY' || apiKey.trim() === '';
@@ -246,35 +352,6 @@ async function generateAIQuestions(pastQuestionTexts: string[] = []): Promise<an
   }
 
   try {
-    const prompt = `
-      You are Bondly's question-generation engine.
-      Generate exactly 10 unique, highly engaging, and easy-to-understand daily questions for friends/partners.
-      Do not repeat or overlap with these past questions:
-      ${pastQuestionTexts.length > 0 ? pastQuestionTexts.map((q, i) => `${i+1}. ${q}`).join('\n') : 'None'}
-
-      CRITICAL SEMANTIC DIVERSIFICATION RULES:
-      - Every question must have a completely unique intention, theme, emotional tone, topic, and require a totally different thinking process.
-      - There must be zero overlap or similarity in intentions or thoughts across the 10 questions.
-      - If one question is about a daily routine, no other question can ask about daily habits.
-      - If one question touches on food/restaurants, no other question can cover culinary topics.
-      - If one question asks about memories/nostalgia, no other question can cover past events.
-      - If one question is analytical, make others lighthearted, emotional, futuristic, active, or goofy. Do not repeat any concepts, nouns, verbs, or semantic meanings across any of the 10 questions. None of them should feel similar in intention or meaning.
-
-      You MUST generate exactly 10 questions in a JSON array. Follow this exact order of formats/types:
-      1. Index 0: type="this_or_that" (category="Fun" or "Friendship"). A fast choice. Text must be like "Coffee vs Tea" or "Cats vs Dogs". Include options=[item1, item2].
-      2. Index 1: type="self" (category="Friendship" or "Fun"). A reflective question answered for oneself.
-      3. Index 2: type="prediction" (category="Emotional" or "Friendship"). A question where one partner predicts the other's answer.
-      4. Index 3: type="multiple_choice" (category="Fun"). Include options=[option1, option2, option3, option4] (4 items with descriptive emojis).
-      5. Index 4: type="either_or" (category="Fun" or "Deep Thinking"). Two big choices. Text must be like "Live in Space or Live Underwater". Include options=[choice1, choice2].
-      6. Index 5: type="reaction_meter" (category="Fun" or "Emotional"). A prompt requesting a reaction. E.g., "When someone cancels plans at the last minute".
-      7. Index 6: type="slider" (category="Emotional" or "Deep Thinking"). An opinion rating question from 0 to 100. E.g., "How stressful was today?" or "How high is your battery today?".
-      8. Index 7: type="ranking" (category="Fun" or "Friendship"). Rank 5 items. Include options=[item1, item2, item3, item4, item5] (e.g. Pizza, Burger, etc.).
-      9. Index 8: type="emoji_only" (category="Fun" or "Emotional"). A prompt to describe something using only emojis. E.g., "Describe today using only emojis." or "Describe your mood using only emojis.".
-      10. Index 9: type="voice" (category="Deep Thinking" or "Emotional"). A deep bedtime question. E.g., "Record a voice answer sharing one thing you appreciate about our relationship today." or "Share a sweet memory you thought of today.".
-
-      Generate response matching the specified JSON schema. Do not include mock questions or placeholders.
-    `;
-
     const schemaDesc = `{
       questions: Array<{
         text: string,
@@ -285,14 +362,106 @@ async function generateAIQuestions(pastQuestionTexts: string[] = []): Promise<an
       }>
     }`;
 
-    const data = await callGroqAPI(prompt, schemaDesc);
-    if (data && Array.isArray(data.questions) && data.questions.length === 10) {
-      return data.questions.map((q: any, idx: number) => ({
-        id: `ai_${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 5)}`,
-        ...q
-      }));
+    // Prompt for Batch 1 (Questions 1-5): Fast and reflective types
+    const prompt1 = `
+      You are Bondly's question-generation engine (Batch 1 of 2).
+      Generate exactly 5 unique, highly engaging, and easy-to-understand daily questions for friends/partners.
+      Do not repeat or overlap with these past questions:
+      ${pastQuestionTexts.length > 0 ? pastQuestionTexts.map((q, i) => `${i+1}. ${q}`).join('\n') : 'None'}
+
+      CRITICAL SEMANTIC DIVERSIFICATION RULES:
+      - Every question must have a completely unique intention, theme, emotional tone, topic, and require a totally different thinking process.
+      - There must be zero overlap or similarity in intentions or thoughts across the 5 questions.
+      - If one question is about a daily routine, no other question can ask about daily habits.
+      - If one question touches on food/restaurants, no other question can cover culinary topics.
+      - If one question asks about childhood memories, no other question can cover nostalgia/past events.
+      - Do not repeat any concepts, nouns, verbs, or semantic meanings across any of the questions. None of them should feel similar in intention or meaning.
+
+      You MUST generate exactly 5 questions in a JSON array. Follow this exact order of formats/types:
+      1. Index 0: type="this_or_that" (category="Fun" or "Friendship"). A fast choice. Text must be like "Coffee vs Tea" or "Cats vs Dogs". Include options=[item1, item2].
+      2. Index 1: type="self" (category="Friendship" or "Fun"). A reflective question answered for oneself. E.g., "What is a personality detail about me you hope never changes?".
+      3. Index 2: type="prediction" (category="Emotional" or "Friendship"). A question where one partner predicts the other's answer. E.g., "What is my absolute favorite way to destress after a chaotic day?".
+      4. Index 3: type="multiple_choice" (category="Fun"). Include options=[option1, option2, option3, option4] (4 items with descriptive emojis).
+      5. Index 4: type="either_or" (category="Fun" or "Deep Thinking"). Two big choices. Text must be like "Live in Space or Live Underwater". Include options=[choice1, choice2].
+
+      FOCUS AREA & TOPIC LIMITATION:
+      Only focus on simple preferences, personality quirks, habit predictions, and imaginary/sci-fi choices. Do NOT write questions about emotional reactions to events, numeric rating scales, priority rankings of multiple items, emoji-only representations of mood, or voice messages of appreciation/bedtime reflections.
+
+      Generate response matching the specified JSON schema. Do not include mock questions or placeholders.
+    `;
+
+    // Prompt for Batch 2 (Questions 6-10): Interaction, meter, rating, and voice types
+    const prompt2 = `
+      You are Bondly's question-generation engine (Batch 2 of 2).
+      Generate exactly 5 unique, highly engaging, and easy-to-understand daily questions for friends/partners.
+      Do not repeat or overlap with these past questions:
+      ${pastQuestionTexts.length > 0 ? pastQuestionTexts.map((q, i) => `${i+1}. ${q}`).join('\n') : 'None'}
+
+      CRITICAL SEMANTIC DIVERSIFICATION RULES:
+      - Every question must have a completely unique intention, theme, emotional tone, topic, and require a totally different thinking process.
+      - There must be zero overlap or similarity in intentions or thoughts across the 5 questions.
+      - If one question is about stress or daily battery, no other question can ask about emotional states.
+      - Do not repeat any concepts, nouns, verbs, or semantic meanings across any of the questions. None of them should feel similar in intention or meaning.
+
+      You MUST generate exactly 5 questions in a JSON array. Follow this exact order of formats/types:
+      1. Index 0: type="reaction_meter" (category="Fun" or "Emotional"). A prompt requesting a reaction. E.g., "When someone cancels plans at the last minute".
+      2. Index 1: type="slider" (category="Emotional" or "Deep Thinking"). An opinion rating question from 0 to 100. E.g., "How stressful was today?" or "How high is your battery today?".
+      3. Index 2: type="ranking" (category="Fun" or "Friendship"). Rank 5 items. Include options=[item1, item2, item3, item4, item5] (e.g. Pizza, Burger, etc.).
+      4. Index 3: type="emoji_only" (category="Fun" or "Emotional"). A prompt to describe something using only emojis. E.g., "Describe today using only emojis." or "Describe your mood using only emojis.".
+      5. Index 4: type="voice" (category="Deep Thinking" or "Emotional"). A deep bedtime question. E.g., "Record a voice answer sharing one thing you appreciate about our relationship today." or "Share a sweet memory you thought of today.".
+
+      FOCUS AREA & TOPIC LIMITATION:
+      Only focus on emotional reactions, numeric ratings, ranking items, emoji representation of moods, and bedtime voice messages of appreciation/memories. Do NOT write questions about simple preferences (like coffee vs tea), general personality reflection, imaginary sci-fi either/or scenarios, or standard multiple-choice questions.
+
+      Generate response matching the specified JSON schema. Do not include mock questions or placeholders.
+    `;
+
+    // Fetch both batches in parallel
+    const [batch1, batch2] = await Promise.all([
+      generateAIQuestionsBatch(prompt1, schemaDesc, 5).catch(e => {
+        console.error('❌ Batch 1 question generation failed completely after retries:', e);
+        return [] as any[];
+      }),
+      generateAIQuestionsBatch(prompt2, schemaDesc, 5).catch(e => {
+        console.error('❌ Batch 2 question generation failed completely after retries:', e);
+        return [] as any[];
+      })
+    ]);
+
+    let combinedQuestions = [...batch1, ...batch2];
+
+    // Safety fallback: if both batches failed and returned absolutely 0 questions, we fall back to static questions
+    if (combinedQuestions.length === 0) {
+      console.warn('⚠️ Both AI batches failed completely. Falling back to static question pool.');
+      return getRandomStaticQuestions(pastQuestionTexts);
     }
-    throw new Error('Invalid or incomplete AI response structure');
+
+    // Check each generated question for duplicates against pastQuestionTexts
+    for (let i = 0; i < combinedQuestions.length; i++) {
+      const q = combinedQuestions[i];
+      if (isQuestionDuplicate(q.text, pastQuestionTexts)) {
+        console.log(`🔍 Detected duplicate question text: "${q.text}". Generating alternatives...`);
+        const alternatives = await generateAlternatives(q.text, q.type, q.category, pastQuestionTexts);
+        
+        // Find the first alternative that is NOT a duplicate
+        let replacement = alternatives.find(alt => !isQuestionDuplicate(alt.text, pastQuestionTexts));
+        
+        // If we found a unique replacement, use it
+        if (replacement) {
+          console.log(`✅ Replaced duplicate question with: "${replacement.text}"`);
+          combinedQuestions[i] = replacement;
+        } else if (alternatives.length > 0) {
+          // If all alternatives were duplicates (extremely rare), fallback to the first alternative instead of looping again
+          console.warn(`⚠️ All generated alternatives were duplicates. Falling back to first alternative: "${alternatives[0].text}"`);
+          combinedQuestions[i] = alternatives[0];
+        }
+      }
+    }
+
+    return combinedQuestions.map((q: any, idx: number) => ({
+      id: q.id && (q.id.startsWith('ai_') || q.id.startsWith('dq_')) ? q.id : `ai_${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 5)}`,
+      ...q
+    }));
   } catch (error) {
     console.error('❌ AI question generation error:', error);
     return getRandomStaticQuestions(pastQuestionTexts);
@@ -589,6 +758,7 @@ app.post('/api/rooms/create', async (req, res) => {
     user2: null,
     currentDate: todayStr,
     usedQuestionIds: picked.map(q => q.id),
+    pastQuestionTexts: [],
     dailySession: {
       id: `sess_${todayStr}`,
       date: todayStr,
@@ -689,12 +859,24 @@ app.get('/api/rooms/:roomCode', async (req, res) => {
     // Completely drop Memory Vault (no archiving to room.memories)
     room.memories = [];
 
-    const pastQuestionTexts: string[] = [];
+    // Ensure room.pastQuestionTexts exists
+    room.pastQuestionTexts = room.pastQuestionTexts || [];
+
+    // Save yesterday's questions to the room's permanent history
     if (room.dailySession && room.dailySession.questions) {
-      room.dailySession.questions.forEach(q => pastQuestionTexts.push(q.text));
+      room.dailySession.questions.forEach(q => {
+        if (q.text && !room.pastQuestionTexts!.includes(q.text)) {
+          room.pastQuestionTexts!.push(q.text);
+        }
+      });
     }
 
-    const picked = await generateAIQuestions(pastQuestionTexts);
+    // Keep history capped at last 100 questions to prevent any database size issues
+    if (room.pastQuestionTexts.length > 100) {
+      room.pastQuestionTexts = room.pastQuestionTexts.slice(-100);
+    }
+
+    const picked = await generateAIQuestions(room.pastQuestionTexts);
     const todayDate = new Date();
 
     const roomQuestions: RoomQuestion[] = picked.map((q, idx) => ({

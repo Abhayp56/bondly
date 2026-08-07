@@ -4,7 +4,7 @@ import {
   Heart, Sparkles, Flame, Users, Calendar, BarChart3, 
   Gamepad2, Award, User, Bell, Clock, ShieldCheck, BellRing, CheckCircle2
 } from 'lucide-react';
-import { Profile, DailySession, Memory, FriendshipTimelineEvent, Achievement, DailyQuestion } from './types';
+import { Profile, DailySession, Memory, FriendshipTimelineEvent, Achievement, DailyQuestion, BingoState } from './types';
 import { DEFAULT_QUESTIONS, INITIAL_ACHIEVEMENTS, INITIAL_TIMELINE_EVENTS } from './data';
 import { requestAppNotificationPermission, sendAppNotification, syncDailyQuestionNotifications } from './services/notificationService';
 import { supabase } from './lib/supabaseClient';
