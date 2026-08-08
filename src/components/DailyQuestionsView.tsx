@@ -44,22 +44,8 @@ export default function DailyQuestionsView({
   const [isFlipped, setIsFlipped] = useState(false);
   const [errMsg, setErrMsg] = useState('');
 
-  // Voice recording state
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordSeconds, setRecordSeconds] = useState(0);
-  const [waveformLevels, setWaveformLevels] = useState<number[]>(new Array(15).fill(4));
-  const [isPlayingPreview, setIsPlayingPreview] = useState(false);
-
   // Ranking state
   const [rankedItems, setRankedItems] = useState<string[]>([]);
-
-  // Refs for voice recording
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const waveformIntervalRef = useRef<any>(null);
-  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Active Question
   const activeQuestion: DailyQuestion | undefined = dailySession?.questions[currentIndex];
@@ -74,12 +60,6 @@ export default function DailyQuestionsView({
       setIsFlipped(bothDone);
       setErrMsg('');
 
-      // Voice recorder preview clear
-      setIsPlayingPreview(false);
-      if (previewAudioRef.current) {
-        previewAudioRef.current.pause();
-        previewAudioRef.current = null;
-      }
 
       // Ranking items initialize
       if (activeQuestion.type === 'ranking') {
@@ -92,10 +72,6 @@ export default function DailyQuestionsView({
         }
       }
     }
-
-    return () => {
-      if (waveformIntervalRef.current) clearInterval(waveformIntervalRef.current);
-    };
   }, [currentIndex, activeQuestion?.id]);
 
   if (!dailySession || !activeQuestion) {
@@ -137,103 +113,6 @@ export default function DailyQuestionsView({
     return new Date(now.getFullYear(), now.getMonth(), now.getDate(), time.h, time.m, 0);
   };
 
-  // Voice Recording Functions
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const source = audioCtx.createMediaStreamSource(stream);
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 64;
-      source.connect(analyser);
-
-      const bufferLength = analyser.frequencyBinCount;
-      const dataArray = new Uint8Array(bufferLength);
-      analyserRef.current = analyser;
-      audioContextRef.current = audioCtx;
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        const url = URL.createObjectURL(audioBlob);
-        setUserAnswer(url);
-        stream.getTracks().forEach(track => track.stop());
-        if (audioCtx.state !== 'closed') audioCtx.close();
-      };
-
-      mediaRecorder.start();
-      setIsRecording(true);
-      setRecordSeconds(0);
-      setWaveformLevels(new Array(15).fill(4));
-
-      waveformIntervalRef.current = setInterval(() => {
-        if (analyserRef.current) {
-          analyserRef.current.getByteFrequencyData(dataArray);
-          const levels = Array.from(dataArray).slice(0, 15).map(val => Math.max(4, Math.round((val / 255) * 48)));
-          setWaveformLevels(levels);
-        }
-        setRecordSeconds(prev => {
-          if (prev >= 30) {
-            if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-              mediaRecorderRef.current.stop();
-            }
-            setIsRecording(false);
-            if (waveformIntervalRef.current) clearInterval(waveformIntervalRef.current);
-            return 30;
-          }
-          return prev + 0.1;
-        });
-      }, 100);
-
-    } catch (err) {
-      console.warn("Microphone access denied:", err);
-      setErrMsg("Failed to access microphone. Please check app permissions.");
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-    }
-    setIsRecording(false);
-    if (waveformIntervalRef.current) clearInterval(waveformIntervalRef.current);
-  };
-
-  const deleteRecording = () => {
-    setUserAnswer('');
-    setIsPlayingPreview(false);
-    if (previewAudioRef.current) {
-      previewAudioRef.current.pause();
-      previewAudioRef.current = null;
-    }
-  };
-
-  const togglePreviewPlayback = () => {
-    if (!userAnswer) return;
-    if (isPlayingPreview) {
-      if (previewAudioRef.current) {
-        previewAudioRef.current.pause();
-      }
-      setIsPlayingPreview(false);
-    } else {
-      const audio = new Audio(userAnswer);
-      previewAudioRef.current = audio;
-      audio.play().catch(e => console.error(e));
-      setIsPlayingPreview(true);
-      audio.onended = () => {
-        setIsPlayingPreview(false);
-      };
-    }
-  };
 
   // Ranking Swap Function
   const moveRank = (index: number, direction: number) => {
@@ -284,44 +163,6 @@ export default function DailyQuestionsView({
     setErrMsg('');
 
     let finalAnswer = userAnswer;
-
-    // Handle voice upload
-    if (activeQuestion.type === 'voice' && userAnswer.startsWith('blob:')) {
-      try {
-        const response = await fetch(userAnswer);
-        const blob = await response.blob();
-        const fileName = `${profile.roomCode || 'local'}/${activeQuestion.id}_${profile.slot || 'user1'}_${Date.now()}.webm`;
-
-        if (supabase) {
-          const { error } = await supabase.storage
-            .from('audio_answers')
-            .upload(fileName, blob, { contentType: 'audio/webm' });
-
-          if (error) {
-            throw new Error(error.message);
-          }
-
-          const { data: { publicUrl } } = supabase.storage
-            .from('audio_answers')
-            .getPublicUrl(fileName);
-
-          finalAnswer = publicUrl;
-        } else {
-          // Local fallback base64
-          const base64 = await new Promise<string>((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.readAsDataURL(blob);
-          });
-          finalAnswer = base64;
-        }
-      } catch (uploadErr: any) {
-        console.error('Audio upload failed:', uploadErr);
-        setErrMsg('Failed to upload voice memo. Please try again.');
-        setIsSubmitting(false);
-        return;
-      }
-    }
 
     try {
       if (profile.roomCode) {
@@ -382,7 +223,7 @@ export default function DailyQuestionsView({
 
           if (response.ok) {
             const aiResult = await response.json();
-            let partnerAns = "Here is my audio recording placeholder!";
+            let partnerAns = "I really appreciate how we can talk about anything and support each other no matter what.";
             if (activeQuestion.type === 'slider') partnerAns = "72";
             else if (activeQuestion.type === 'ranking') partnerAns = rankedItems.slice().reverse().join(',');
             else if (activeQuestion.type === 'reaction_meter') partnerAns = '😍 Love';
@@ -537,7 +378,7 @@ export default function DailyQuestionsView({
                   <div className="p-3.5 bg-white rounded-2xl border border-vsoft-border text-left space-y-1">
                     <span className="text-[10px] font-extrabold uppercase text-vcoral">Your Saved Response</span>
                     <p className="text-xs font-bold text-vcharcoal">
-                      {activeQuestion.type === 'voice' ? 'Voice response recorded 🎤' : `"${activeQuestion.type === 'prediction' ? activeQuestion.userPrediction : activeQuestion.userAnswer}"`}
+                      `"${activeQuestion.type === 'prediction' ? activeQuestion.userPrediction : activeQuestion.userAnswer}"`
                     </p>
                   </div>
                   <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200 text-[11px] font-bold text-amber-800 flex items-center justify-center space-x-1.5">
@@ -737,84 +578,6 @@ export default function DailyQuestionsView({
                         <span className="absolute right-3.5 bottom-3.5 text-[9px] font-bold text-vgray">
                           {Array.from(userAnswer.replace(/\s+/g, '')).length} / 10
                         </span>
-                      </div>
-                    </div>
-                  ) : activeQuestion.type === 'voice' ? (
-                    <div className="space-y-2.5 pt-1">
-                      <label className="block text-[11px] font-extrabold uppercase tracking-wider text-vgray">
-                        Record Your Bedtime Message (Max 30s):
-                      </label>
-                      
-                      <div className="p-5 bg-vsoft/30 border border-vsoft-border rounded-3xl flex flex-col items-center justify-center space-y-4">
-                        {isRecording ? (
-                          <div className="text-center space-y-2.5 w-full">
-                            <span className="text-xs text-rose-500 font-extrabold flex items-center justify-center space-x-1.5 animate-pulse">
-                              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
-                              <span>RECORDING {recordSeconds.toFixed(1)}s / 30.0s</span>
-                            </span>
-                            
-                            {/* Waveform graphic */}
-                            <div className="flex items-end justify-center space-x-1 h-12 py-1">
-                              {waveformLevels.map((val, idx) => (
-                                <div
-                                  key={idx}
-                                  className="w-1.5 bg-rose-500 rounded-full transition-all duration-75"
-                                  style={{ height: `${val}px` }}
-                                />
-                              ))}
-                            </div>
-                            
-                            <button
-                              type="button"
-                              onClick={stopRecording}
-                              className="px-6 py-2.5 bg-rose-600 text-white rounded-full text-xs font-bold shadow-md cursor-pointer hover:bg-rose-700 active:scale-95 transition-all mx-auto block"
-                            >
-                              Stop Recording
-                            </button>
-                          </div>
-                        ) : userAnswer ? (
-                          <div className="text-center space-y-3.5 w-full">
-                            <span className="text-[10px] font-extrabold text-emerald-600 uppercase tracking-wider block bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100 w-max mx-auto">
-                              ✓ Recording Completed
-                            </span>
-                            
-                            <div className="flex items-center justify-center space-x-3.5 pt-1">
-                              <button
-                                type="button"
-                                onClick={togglePreviewPlayback}
-                                className="w-11 h-11 bg-vcoral text-white rounded-full flex items-center justify-center shadow-md cursor-pointer hover:scale-105 active:scale-95 transition-all"
-                              >
-                                {isPlayingPreview ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-white ml-0.5" />}
-                              </button>
-                              
-                              <button
-                                type="button"
-                                onClick={deleteRecording}
-                                className="w-10 h-10 bg-white border border-vborder text-rose-500 rounded-full flex items-center justify-center shadow-sm cursor-pointer hover:bg-rose-50 hover:border-rose-200 active:scale-95 transition-all"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="text-center space-y-3.5">
-                            <div className="w-14 h-14 bg-white border border-vborder text-vcoral rounded-full flex items-center justify-center shadow-sm hover:scale-[1.02] active:scale-95 cursor-pointer transition-all mx-auto">
-                              <button
-                                type="button"
-                                onMouseDown={startRecording}
-                                onTouchStart={startRecording}
-                                onMouseUp={stopRecording}
-                                onTouchEnd={stopRecording}
-                                className="w-full h-full flex items-center justify-center cursor-pointer text-vcoral focus:outline-none"
-                              >
-                                <Mic className="w-6 h-6" />
-                              </button>
-                            </div>
-                            <span className="text-[10px] font-bold text-vgray uppercase tracking-widest block">
-                              Hold microphone to record
-                            </span>
-                          </div>
-                        )}
                       </div>
                     </div>
                   ) : activeQuestion.type === 'prediction' ? (

@@ -180,7 +180,7 @@ const QUESTION_POOL = [
   { id: 'sld1', text: 'How high is your social battery right now?', category: 'Deep Thinking', type: 'slider', difficulty: 'Medium' },
   { id: 'rnk1', text: 'Rank these dinner choices from favorite to least favorite:', category: 'Fun', type: 'ranking', difficulty: 'Easy', options: ['Pizza 🍕', 'Burger 🍔', 'Pasta 🍝', 'Biryani 🍛', 'Ice Cream 🍨'] },
   { id: 'emo1', text: 'Describe today using only emojis (Max 10).', category: 'Fun', type: 'emoji_only', difficulty: 'Easy' },
-  { id: 'voc1', text: 'Record a voice answer sharing one thing you appreciate about our relationship today.', category: 'Deep Thinking', type: 'voice', difficulty: 'Deep' }
+  { id: 'voc1', text: 'What is one thing you appreciate about our relationship today?', category: 'Deep Thinking', type: 'self', difficulty: 'Deep' }
 ];
 
 // Calculate Scheduled Unlock Times
@@ -356,7 +356,7 @@ async function generateAIQuestions(pastQuestionTexts: string[] = []): Promise<an
       questions: Array<{
         text: string,
         category: string (Friendship, Fun, Emotional, Deep Thinking, Future),
-        type: string (this_or_that, self, prediction, multiple_choice, either_or, reaction_meter, slider, ranking, emoji_only, voice),
+        type: string (this_or_that, self, prediction, multiple_choice, either_or, reaction_meter, slider, ranking, emoji_only),
         difficulty: string (Easy, Medium, Deep),
         options?: Array<string>
       }>
@@ -408,10 +408,10 @@ async function generateAIQuestions(pastQuestionTexts: string[] = []): Promise<an
       2. Index 1: type="slider" (category="Emotional" or "Deep Thinking"). An opinion rating question from 0 to 100. E.g., "How stressful was today?" or "How high is your battery today?".
       3. Index 2: type="ranking" (category="Fun" or "Friendship"). Rank 5 items. Include options=[item1, item2, item3, item4, item5] (e.g. Pizza, Burger, etc.).
       4. Index 3: type="emoji_only" (category="Fun" or "Emotional"). A prompt to describe something using only emojis. E.g., "Describe today using only emojis." or "Describe your mood using only emojis.".
-      5. Index 4: type="voice" (category="Deep Thinking" or "Emotional"). A deep bedtime question. E.g., "Record a voice answer sharing one thing you appreciate about our relationship today." or "Share a sweet memory you thought of today.".
+      5. Index 4: type="self" (category="Deep Thinking" or "Emotional"). A deep bedtime question. E.g., "What is one thing you appreciate about our relationship today?" or "Share a sweet memory you thought of today.".
 
       FOCUS AREA & TOPIC LIMITATION:
-      Only focus on emotional reactions, numeric ratings, ranking items, emoji representation of moods, and bedtime voice messages of appreciation/memories. Do NOT write questions about simple preferences (like coffee vs tea), general personality reflection, imaginary sci-fi either/or scenarios, or standard multiple-choice questions.
+      Only focus on emotional reactions, numeric ratings, ranking items, emoji representation of moods, and bedtime messages of appreciation/memories. Do NOT write questions about simple preferences (like coffee vs tea), general personality reflection, imaginary sci-fi either/or scenarios, or standard multiple-choice questions.
 
       Generate response matching the specified JSON schema. Do not include mock questions or placeholders.
     `;
@@ -591,13 +591,6 @@ async function evaluateAnswersInternal(
       };
     }
 
-    if (type === 'voice') {
-      return {
-        similarityScore: 95,
-        aiCommentary: `Cozy bedtime Voice Memo submitted! Listening to each other's voice notes builds a beautifully intimate connection.`
-      };
-    }
-
     if (type === 'prediction') {
       const p1 = (userPrediction || '').toLowerCase().trim();
       const p2 = (partnerPrediction || '').toLowerCase().trim();
@@ -634,7 +627,6 @@ async function evaluateAnswersInternal(
       For type="slider", note their numeric ratings (0-100) and comment on how close or far apart they are.
       For type="ranking", evaluate how similar their ranked priorities are.
       For type="emoji_only", interpret the meaning of both users' emoji strings and summarize their combined day or feelings.
-      For type="voice", they uploaded audio files (the values are URLs). Write a warm message celebrating their shared bedtime voices.
       
       Calculate a similarity/accuracy percentage (an integer between 0 and 100).
       Write a warm, cozy, and highly personalized AI commentary (exactly 1-2 sentences) commenting on their answers.
@@ -820,41 +812,6 @@ app.get('/api/rooms/:roomCode', async (req, res) => {
   let roomUpdated = false;
 
   if (room.currentDate !== todayStr) {
-    // Delete any voice recording audio files from the previous session to save Supabase Storage
-    if (room.dailySession && room.dailySession.questions) {
-      const voiceQuestions = room.dailySession.questions.filter(q => q.type === 'voice');
-      const pathsToDelete: string[] = [];
-
-      const getStoragePathFromUrl = (url: string): string | null => {
-        if (!url) return null;
-        const marker = '/audio_answers/';
-        const idx = url.indexOf(marker);
-        if (idx !== -1) {
-          return url.substring(idx + marker.length);
-        }
-        return null;
-      };
-
-      voiceQuestions.forEach(q => {
-        const p1 = getStoragePathFromUrl(q.user1Answer);
-        const p2 = getStoragePathFromUrl(q.user2Answer);
-        if (p1) pathsToDelete.push(p1);
-        if (p2) pathsToDelete.push(p2);
-      });
-
-      if (supabase && pathsToDelete.length > 0) {
-        try {
-          const { error } = await supabase.storage.from('audio_answers').remove(pathsToDelete);
-          if (error) {
-            console.error('❌ Failed to delete old voice files from Supabase Storage:', error.message);
-          } else {
-            console.log('✅ Successfully deleted voice files from Supabase Storage:', pathsToDelete);
-          }
-        } catch (err) {
-          console.error('⚠️ Error deleting old voice files:', err);
-        }
-      }
-    }
 
     // Completely drop Memory Vault (no archiving to room.memories)
     room.memories = [];

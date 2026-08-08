@@ -18,29 +18,6 @@ export default function AnswerCheckerView({
   onUpdateSession
 }: AnswerCheckerViewProps) {
   const [selectedQuestionIndex, setSelectedQuestionIndex] = useState(0);
-  const [playingAudioUrl, setPlayingAudioUrl] = useState<string | null>(null);
-  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
-
-  const toggleVoicePlayback = (url: string) => {
-    if (!url) return;
-    if (playingAudioUrl === url) {
-      if (audioPlayerRef.current) {
-        audioPlayerRef.current.pause();
-      }
-      setPlayingAudioUrl(null);
-    } else {
-      if (audioPlayerRef.current) {
-        audioPlayerRef.current.pause();
-      }
-      const audio = new Audio(url);
-      audioPlayerRef.current = audio;
-      audio.play().catch(e => console.error(e));
-      setPlayingAudioUrl(url);
-      audio.onended = () => {
-        setPlayingAudioUrl(null);
-      };
-    }
-  };
 
   if (!dailySession) {
     return (
@@ -321,18 +298,7 @@ export default function AnswerCheckerView({
                           </span>
                           <span>{profile.avatarUrl}</span>
                         </div>
-                        
-                        {dailySession.questions[selectedQuestionIndex].type === 'voice' ? (
-                          <div className="flex items-center space-x-2 pt-1">
-                            <button
-                              onClick={() => toggleVoicePlayback(dailySession.questions[selectedQuestionIndex].userAnswer)}
-                              className="px-4 py-2 bg-vcoral text-white rounded-full text-xs font-bold flex items-center space-x-1.5 shadow-sm active:scale-95 transition-all"
-                            >
-                              {playingAudioUrl === dailySession.questions[selectedQuestionIndex].userAnswer ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-white ml-0.5" />}
-                              <span>{playingAudioUrl === dailySession.questions[selectedQuestionIndex].userAnswer ? 'Pause Playback' : 'Play My Answer 🎤'}</span>
-                            </button>
-                          </div>
-                        ) : dailySession.questions[selectedQuestionIndex].type === 'emoji_only' ? (
+                        {dailySession.questions[selectedQuestionIndex].type === 'emoji_only' ? (
                           <div className="flex flex-wrap gap-1.5 justify-start py-1">
                             {Array.from(dailySession.questions[selectedQuestionIndex].userAnswer).map((emo, eIdx) => (
                               <motion.span
@@ -377,18 +343,7 @@ export default function AnswerCheckerView({
                           </span>
                           <span>{profile.partnerAvatarUrl || '🌸'}</span>
                         </div>
-                        
-                        {dailySession.questions[selectedQuestionIndex].type === 'voice' ? (
-                          <div className="flex items-center space-x-2 pt-1">
-                            <button
-                              onClick={() => toggleVoicePlayback(dailySession.questions[selectedQuestionIndex].partnerAnswer)}
-                              className="px-4 py-2 bg-vcoral text-white rounded-full text-xs font-bold flex items-center space-x-1.5 shadow-sm active:scale-95 transition-all"
-                            >
-                              {playingAudioUrl === dailySession.questions[selectedQuestionIndex].partnerAnswer ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-white ml-0.5" />}
-                              <span>{playingAudioUrl === dailySession.questions[selectedQuestionIndex].partnerAnswer ? 'Pause Playback' : "Play Partner's Answer 🎤"}</span>
-                            </button>
-                          </div>
-                        ) : dailySession.questions[selectedQuestionIndex].type === 'emoji_only' ? (
+                        {dailySession.questions[selectedQuestionIndex].type === 'emoji_only' ? (
                           <div className="flex flex-wrap gap-1.5 justify-start py-1">
                             {Array.from(dailySession.questions[selectedQuestionIndex].partnerAnswer).map((emo, eIdx) => (
                               <motion.span

@@ -42,7 +42,7 @@ export interface RoomState {
 }
 
 export type QuestionCategory = 'Friendship' | 'Fun' | 'Emotional' | 'Deep Thinking' | 'Future' | 'Random';
-export type QuestionType = 'self' | 'prediction' | 'rapid_fire' | 'multiple_choice' | 'voice' | 'emoji_only' | 'slider' | 'reaction_meter' | 'ranking' | 'either_or' | 'this_or_that';
+export type QuestionType = 'self' | 'prediction' | 'rapid_fire' | 'multiple_choice' | 'emoji_only' | 'slider' | 'reaction_meter' | 'ranking' | 'either_or' | 'this_or_that';
 
 export interface Question {
   id: string;

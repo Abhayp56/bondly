@@ -47,7 +47,7 @@ export default function MiniGamesView({ profile, bingoState, onUpdateBingoState 
     {
       id: 'wheel',
       title: 'Spicy & Sweet Roulette 🎡',
-      description: 'Spin the wheel for customized AI truth or dares. Upload voice messages or text proof to complete.',
+      description: 'Spin the wheel for customized AI truth or dares. Upload text proof to complete.',
       tag: 'Coming Soon',
       isHot: false,
       locked: true,
